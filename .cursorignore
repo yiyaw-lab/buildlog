@@ -1,0 +1,39 @@
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+*.cert
+*.p12
+*.pfx
+
+# Private company material
+private/
+secrets/
+company_docs/
+legal/
+tax/
+banking/
+client_data/
+customer_data/
+founder_notes/
+board/
+investor_updates/
+
+# Generated / noisy files
+node_modules/
+.venv/
+venv/
+dist/
+build/
+.next/
+coverage/
+__pycache__/
+*.log
+
+# Local databases / large artifacts
+*.sqlite
+*.db
+*.zip
+*.tar
+*.gz
