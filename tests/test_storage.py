@@ -62,6 +62,28 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(loaded, [valid])
             stderr.write.assert_called()
 
+    def test_malformed_valid_json_entry_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            valid = {
+                "id": "abc123",
+                "timestamp": "2026-06-09T12:00:00+00:00",
+                "project": "demo",
+                "title": "Test",
+                "summary": "Valid",
+                "tags": [],
+            }
+            with open(log_path, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps({"project": "demo", "title": "Missing fields"}) + "\n")
+                handle.write(json.dumps(valid) + "\n")
+
+            with patch.dict(os.environ, {"BUILDLOG_PATH": log_path}):
+                with patch("sys.stderr") as stderr:
+                    loaded = storage.load_entries()
+
+            self.assertEqual(loaded, [valid])
+            stderr.write.assert_called()
+
 
 if __name__ == "__main__":
     unittest.main()

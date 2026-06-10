@@ -19,9 +19,20 @@ def build_parser():
 
     list_parser = subparsers.add_parser("list", help="List recent build log entries.")
     list_parser.add_argument("--project")
-    list_parser.add_argument("--limit", type=int, default=DEFAULT_LIST_LIMIT)
+    list_parser.add_argument(
+        "--limit",
+        type=int,
+        default=DEFAULT_LIST_LIMIT,
+        help=f"Maximum entries to show (default: {DEFAULT_LIST_LIMIT}). Use 0 for all.",
+    )
 
-    subparsers.add_parser("export", help="Export all entries as JSONL to stdout.")
+    export_parser = subparsers.add_parser("export", help="Export all entries to stdout.")
+    export_parser.add_argument(
+        "--format",
+        choices=("markdown", "jsonl"),
+        default="markdown",
+        help="Output format (default: markdown).",
+    )
 
     return parser
 
@@ -45,9 +56,9 @@ def cmd_list(args):
 
     loaded = storage.load_entries()
     if args.project:
-        loaded = [entry for entry in loaded if entry.get("project") == args.project]
+        loaded = [entry for entry in loaded if entry["project"] == args.project]
 
-    loaded.sort(key=lambda entry: entry.get("timestamp", ""), reverse=True)
+    loaded.sort(key=lambda entry: entry["timestamp"], reverse=True)
 
     if args.limit == 0:
         selected = loaded
@@ -55,23 +66,53 @@ def cmd_list(args):
         selected = loaded[: args.limit]
 
     for entry in selected:
-        tags = entry.get("tags") or []
+        tags = entry["tags"]
         tag_text = ", ".join(tags)
         tag_suffix = f"  [{tag_text}]" if tag_text else ""
         print(
-            f"{entry.get('timestamp', '')}  "
-            f"{entry.get('project', '')}  "
-            f"{entry.get('title', '')}  "
-            f"{entry.get('summary', '')}{tag_suffix}"
+            f"{entry['timestamp']}  "
+            f"{entry['project']}  "
+            f"{entry['title']}  "
+            f"{entry['summary']}{tag_suffix}"
         )
     return 0
 
 
-def cmd_export():
+def format_entry_markdown(entry):
+    date = entry["timestamp"][:10]
+    lines = [
+        f"## {date} — {entry['project']}",
+        "",
+        f"### {entry['title']}",
+        "",
+        entry["summary"],
+    ]
+    if entry["tags"]:
+        lines.extend(["", f"Tags: {', '.join(entry['tags'])}"])
+    return "\n".join(lines)
+
+
+def export_entries(entries, fmt):
+    if fmt == "jsonl":
+        for entry in entries:
+            print(json.dumps(entry, ensure_ascii=False))
+        return
+
+    if not entries:
+        return
+
+    print("# Build Log")
+    print()
+    for index, entry in enumerate(entries):
+        print(format_entry_markdown(entry))
+        if index < len(entries) - 1:
+            print()
+
+
+def cmd_export(args):
     loaded = storage.load_entries()
-    loaded.sort(key=lambda entry: entry.get("timestamp", ""))
-    for entry in loaded:
-        print(json.dumps(entry, ensure_ascii=False))
+    loaded.sort(key=lambda entry: entry["timestamp"])
+    export_entries(loaded, args.format)
     return 0
 
 
@@ -84,7 +125,7 @@ def main(argv=None):
     if args.command == "list":
         return cmd_list(args)
     if args.command == "export":
-        return cmd_export()
+        return cmd_export(args)
 
     parser.print_help()
     return 1

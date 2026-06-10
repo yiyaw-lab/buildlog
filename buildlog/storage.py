@@ -4,6 +4,24 @@ import sys
 from pathlib import Path
 
 DEFAULT_LOG_PATH = ".buildlog/entries.jsonl"
+REQUIRED_STRING_FIELDS = ("id", "timestamp", "project", "title", "summary")
+
+
+def is_valid_entry(entry):
+    if not isinstance(entry, dict):
+        return False
+
+    for field in REQUIRED_STRING_FIELDS:
+        if field not in entry or not isinstance(entry[field], str):
+            return False
+
+    tags = entry.get("tags")
+    if not isinstance(tags, list):
+        return False
+    if not all(isinstance(tag, str) for tag in tags):
+        return False
+
+    return True
 
 
 def get_log_path():
@@ -29,10 +47,20 @@ def load_entries():
             if not stripped:
                 continue
             try:
-                entries.append(json.loads(stripped))
+                parsed = json.loads(stripped)
             except json.JSONDecodeError:
                 print(
                     f"warning: skipping invalid JSON on line {line_number}",
                     file=sys.stderr,
                 )
+                continue
+
+            if not is_valid_entry(parsed):
+                print(
+                    f"warning: skipping malformed entry on line {line_number}",
+                    file=sys.stderr,
+                )
+                continue
+
+            entries.append(parsed)
     return entries

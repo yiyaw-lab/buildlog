@@ -20,7 +20,38 @@ python -m buildlog add \
 python -m buildlog list
 python -m buildlog list --project myapp --limit 5
 python -m buildlog export
+python -m buildlog export --format jsonl
 ```
+
+### List behavior
+
+- `list` shows the 20 most recent entries by default.
+- `list --limit 0` shows all entries.
+- `list --limit -1` exits with code `1`.
+- With no stored entries, `list` prints empty stdout.
+
+### Export behavior
+
+- `export` prints human-readable Markdown by default.
+- `export --format markdown` prints the same Markdown output.
+- `export --format jsonl` prints full raw JSONL entries, oldest first.
+- With no stored entries, `export` prints empty stdout.
+
+Markdown format:
+
+```markdown
+# Build Log
+
+## YYYY-MM-DD — project
+
+### title
+
+summary
+
+Tags: tag1, tag2
+```
+
+Markdown export omits internal entry ids. The `Tags:` line is omitted when an entry has no tags.
 
 Entries are stored as JSONL at `.buildlog/entries.jsonl` by default.
 
