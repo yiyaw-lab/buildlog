@@ -11,6 +11,16 @@ from unittest.mock import patch
 from buildlog.cli import main
 
 
+EMPTY_STATS_OUTPUT = "\n".join(
+    [
+        "Total entries: 0",
+        "Projects: 0",
+        "Top tags: none",
+        "Latest entry: none",
+    ]
+)
+
+
 class CliTests(unittest.TestCase):
     def run_cli(self, args, log_path):
         stdout = io.StringIO()
@@ -282,6 +292,236 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("# Build Log", result.stdout)
+
+    def test_stats_empty_storage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "missing.jsonl")
+            exit_code, stdout, _ = self.run_cli(["stats"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stdout.strip(), EMPTY_STATS_OUTPUT)
+
+    def test_stats_basic_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entries = [
+                {
+                    "id": "1",
+                    "timestamp": "2026-06-09T10:00:00+00:00",
+                    "project": "alpha",
+                    "title": "First",
+                    "summary": "One",
+                    "tags": ["infra"],
+                },
+                {
+                    "id": "2",
+                    "timestamp": "2026-06-10T12:00:00+00:00",
+                    "project": "beta",
+                    "title": "Second",
+                    "summary": "Two",
+                    "tags": ["cli", "infra"],
+                },
+            ]
+            self.write_entries(log_path, entries)
+
+            exit_code, stdout, _ = self.run_cli(["stats"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Total entries: 2", stdout)
+            self.assertIn("Projects: 2", stdout)
+            self.assertIn("Top tags: infra, cli", stdout)
+            self.assertIn("Latest entry: 2026-06-10 — beta — Second", stdout)
+
+    def test_stats_top_tags_by_frequency(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entries = [
+                {
+                    "id": "1",
+                    "timestamp": "2026-06-09T10:00:00+00:00",
+                    "project": "alpha",
+                    "title": "One",
+                    "summary": "First",
+                    "tags": ["cursor", "cli"],
+                },
+                {
+                    "id": "2",
+                    "timestamp": "2026-06-09T11:00:00+00:00",
+                    "project": "alpha",
+                    "title": "Two",
+                    "summary": "Second",
+                    "tags": ["cursor", "testing"],
+                },
+                {
+                    "id": "3",
+                    "timestamp": "2026-06-09T12:00:00+00:00",
+                    "project": "beta",
+                    "title": "Three",
+                    "summary": "Third",
+                    "tags": ["cursor"],
+                },
+            ]
+            self.write_entries(log_path, entries)
+
+            exit_code, stdout, _ = self.run_cli(["stats"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Top tags: cursor, cli, testing", stdout)
+
+    def test_stats_top_tags_alphabetical_tie_break(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entries = [
+                {
+                    "id": "1",
+                    "timestamp": "2026-06-09T10:00:00+00:00",
+                    "project": "alpha",
+                    "title": "One",
+                    "summary": "First",
+                    "tags": ["zebra"],
+                },
+                {
+                    "id": "2",
+                    "timestamp": "2026-06-09T11:00:00+00:00",
+                    "project": "alpha",
+                    "title": "Two",
+                    "summary": "Second",
+                    "tags": ["alpha"],
+                },
+            ]
+            self.write_entries(log_path, entries)
+
+            exit_code, stdout, _ = self.run_cli(["stats"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Top tags: alpha, zebra", stdout)
+
+    def test_stats_top_tags_limited_to_five(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entries = [
+                {
+                    "id": str(index),
+                    "timestamp": f"2026-06-09T{index:02d}:00:00+00:00",
+                    "project": "alpha",
+                    "title": f"Entry {index}",
+                    "summary": "Summary",
+                    "tags": [f"tag{index}"],
+                }
+                for index in range(1, 7)
+            ]
+            entries.append(
+                {
+                    "id": "7",
+                    "timestamp": "2026-06-09T07:00:00+00:00",
+                    "project": "alpha",
+                    "title": "Extra",
+                    "summary": "Summary",
+                    "tags": ["common"],
+                }
+            )
+            entries.append(
+                {
+                    "id": "8",
+                    "timestamp": "2026-06-09T08:00:00+00:00",
+                    "project": "alpha",
+                    "title": "Extra 2",
+                    "summary": "Summary",
+                    "tags": ["common"],
+                }
+            )
+            self.write_entries(log_path, entries)
+
+            exit_code, stdout, _ = self.run_cli(["stats"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Top tags: common, tag1, tag2, tag3, tag4", stdout)
+            self.assertNotIn("tag5", stdout)
+
+    def test_stats_no_tags_shows_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entry = {
+                "id": "1",
+                "timestamp": "2026-06-09T10:00:00+00:00",
+                "project": "alpha",
+                "title": "Untagged",
+                "summary": "No tags here",
+                "tags": [],
+            }
+            self.write_entries(log_path, [entry])
+
+            exit_code, stdout, _ = self.run_cli(["stats"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Top tags: none", stdout)
+
+    def test_stats_latest_entry_by_timestamp_not_file_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entries = [
+                {
+                    "id": "1",
+                    "timestamp": "2026-06-10T12:00:00+00:00",
+                    "project": "newer",
+                    "title": "Newest",
+                    "summary": "Latest by timestamp",
+                    "tags": [],
+                },
+                {
+                    "id": "2",
+                    "timestamp": "2026-06-09T10:00:00+00:00",
+                    "project": "older",
+                    "title": "Older",
+                    "summary": "Earlier",
+                    "tags": [],
+                },
+            ]
+            self.write_entries(log_path, entries)
+
+            exit_code, stdout, _ = self.run_cli(["stats"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Latest entry: 2026-06-10 — newer — Newest", stdout)
+
+    def test_stats_skips_malformed_entry_with_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            valid = {
+                "id": "1",
+                "timestamp": "2026-06-09T10:00:00+00:00",
+                "project": "alpha",
+                "title": "Valid",
+                "summary": "Only valid entry",
+                "tags": ["infra"],
+            }
+            with open(log_path, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps({"project": "alpha", "title": "Missing fields"}) + "\n")
+                handle.write(json.dumps(valid) + "\n")
+
+            exit_code, stdout, stderr = self.run_cli(["stats"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Total entries: 1", stdout)
+            self.assertIn("Latest entry: 2026-06-09 — alpha — Valid", stdout)
+            self.assertIn("warning:", stderr)
+
+    def test_module_invocation_stats(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            self.write_entries(log_path, self.sample_entries())
+            env = os.environ.copy()
+            env["BUILDLOG_PATH"] = log_path
+            result = subprocess.run(
+                [sys.executable, "-m", "buildlog", "stats"],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("Total entries: 2", result.stdout)
 
 
 if __name__ == "__main__":

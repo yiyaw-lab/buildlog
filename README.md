@@ -21,6 +21,7 @@ python -m buildlog list
 python -m buildlog list --project myapp --limit 5
 python -m buildlog export
 python -m buildlog export --format jsonl
+python -m buildlog stats
 ```
 
 ### List behavior
@@ -52,6 +53,12 @@ Tags: tag1, tag2
 ```
 
 Markdown export omits internal entry ids. The `Tags:` line is omitted when an entry has no tags.
+
+### Stats behavior
+
+- `stats` prints total entries, unique project count, top tags (up to 5), and the latest entry.
+- Top tags are ordered by frequency descending, then alphabetically for ties.
+- With no stored entries, `stats` prints zero counts and `none` for tags and latest entry.
 
 Entries are stored as JSONL at `.buildlog/entries.jsonl` by default.
 

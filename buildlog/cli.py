@@ -34,6 +34,8 @@ def build_parser():
         help="Output format (default: markdown).",
     )
 
+    subparsers.add_parser("stats", help="Show a summary of stored build log entries.")
+
     return parser
 
 
@@ -116,6 +118,40 @@ def cmd_export(args):
     return 0
 
 
+def format_stats(entries):
+    tag_counts = {}
+    for entry in entries:
+        for tag in entry["tags"]:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+    if tag_counts:
+        ranked_tags = sorted(tag_counts.items(), key=lambda item: (-item[1], item[0]))[:5]
+        top_tags_text = ", ".join(tag for tag, _ in ranked_tags)
+    else:
+        top_tags_text = "none"
+
+    if entries:
+        latest = max(entries, key=lambda entry: entry["timestamp"])
+        latest_text = f"{latest['timestamp'][:10]} — {latest['project']} — {latest['title']}"
+    else:
+        latest_text = "none"
+
+    return "\n".join(
+        [
+            f"Total entries: {len(entries)}",
+            f"Projects: {len({entry['project'] for entry in entries})}",
+            f"Top tags: {top_tags_text}",
+            f"Latest entry: {latest_text}",
+        ]
+    )
+
+
+def cmd_stats():
+    loaded = storage.load_entries()
+    print(format_stats(loaded))
+    return 0
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -126,6 +162,8 @@ def main(argv=None):
         return cmd_list(args)
     if args.command == "export":
         return cmd_export(args)
+    if args.command == "stats":
+        return cmd_stats()
 
     parser.print_help()
     return 1
