@@ -523,6 +523,212 @@ class CliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("Total entries: 2", result.stdout)
 
+    def test_handoff_empty_storage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "missing.jsonl")
+            exit_code, stdout, _ = self.run_cli(["handoff"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("# Buildlog Handoff", stdout)
+            self.assertIn("## Recent shipping", stdout)
+            self.assertIn("## Active projects", stdout)
+            self.assertIn("## Recurring themes", stdout)
+            self.assertIn("## Resume prompt", stdout)
+            self.assertIn("none", stdout)
+            self.assertIn("python -m buildlog add", stdout)
+
+    def test_handoff_basic_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entries = [
+                {
+                    "id": "1",
+                    "timestamp": "2026-06-09T10:00:00+00:00",
+                    "project": "alpha",
+                    "title": "First",
+                    "summary": "Initial work",
+                    "tags": ["infra"],
+                },
+                {
+                    "id": "2",
+                    "timestamp": "2026-06-10T12:00:00+00:00",
+                    "project": "beta",
+                    "title": "Second",
+                    "summary": "Latest work",
+                    "tags": ["cli"],
+                },
+            ]
+            self.write_entries(log_path, entries)
+
+            exit_code, stdout, _ = self.run_cli(["handoff"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("- 2026-06-10 — beta — Second", stdout)
+            self.assertIn("  Latest work", stdout)
+            self.assertIn("- beta (1 entries, latest: 2026-06-10)", stdout)
+            self.assertIn("- alpha (1 entries, latest: 2026-06-09)", stdout)
+            self.assertIn("Top tags: cli, infra", stdout)
+            self.assertIn("You are resuming work on this builder project.", stdout)
+
+    def test_handoff_respects_limit_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entries = [
+                {
+                    "id": str(index),
+                    "timestamp": f"2026-06-0{index}T10:00:00+00:00",
+                    "project": "alpha",
+                    "title": f"Entry {index}",
+                    "summary": f"Summary {index}",
+                    "tags": [],
+                }
+                for index in range(1, 7)
+            ]
+            self.write_entries(log_path, entries)
+
+            exit_code, stdout, _ = self.run_cli(["handoff"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            shipping_section = stdout.split("## Active projects")[0]
+            self.assertEqual(shipping_section.count("- 2026-06-"), 5)
+
+    def test_handoff_limit_zero_shows_all(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            self.write_entries(log_path, self.sample_entries())
+
+            exit_code, stdout, _ = self.run_cli(["handoff", "--limit", "0"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            shipping_section = stdout.split("## Active projects")[0]
+            self.assertEqual(shipping_section.count("- 2026-06-"), 2)
+
+    def test_handoff_limit_negative_exits_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            exit_code, stdout, stderr = self.run_cli(["handoff", "--limit", "-1"], log_path)
+
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(stdout, "")
+            self.assertIn("error:", stderr)
+
+    def test_handoff_filters_by_project(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entries = [
+                {
+                    "id": "1",
+                    "timestamp": "2026-06-09T10:00:00+00:00",
+                    "project": "alpha",
+                    "title": "Alpha entry",
+                    "summary": "Alpha work",
+                    "tags": ["alpha-tag"],
+                },
+                {
+                    "id": "2",
+                    "timestamp": "2026-06-10T12:00:00+00:00",
+                    "project": "beta",
+                    "title": "Beta entry",
+                    "summary": "Beta work",
+                    "tags": ["beta-tag"],
+                },
+            ]
+            self.write_entries(log_path, entries)
+
+            exit_code, stdout, _ = self.run_cli(["handoff", "--project", "alpha"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Alpha entry", stdout)
+            self.assertNotIn("Beta entry", stdout)
+            self.assertIn("- alpha (1 entries, latest: 2026-06-09)", stdout)
+            self.assertNotIn("- beta", stdout)
+
+    def test_handoff_recent_shipping_newest_first(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entries = [
+                {
+                    "id": "1",
+                    "timestamp": "2026-06-10T12:00:00+00:00",
+                    "project": "newer",
+                    "title": "Newest",
+                    "summary": "Latest by timestamp",
+                    "tags": [],
+                },
+                {
+                    "id": "2",
+                    "timestamp": "2026-06-09T10:00:00+00:00",
+                    "project": "older",
+                    "title": "Older",
+                    "summary": "Earlier",
+                    "tags": [],
+                },
+            ]
+            self.write_entries(log_path, entries)
+
+            exit_code, stdout, _ = self.run_cli(["handoff"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertLess(stdout.index("Newest"), stdout.index("Older"))
+
+    def test_handoff_omits_entry_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entry = {
+                "id": "deadbeefdeadbeefdeadbeefdeadbeef",
+                "timestamp": "2026-06-09T10:00:00+00:00",
+                "project": "alpha",
+                "title": "Visible title",
+                "summary": "Visible summary",
+                "tags": [],
+            }
+            self.write_entries(log_path, [entry])
+
+            exit_code, stdout, _ = self.run_cli(["handoff"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertNotIn("deadbeef", stdout)
+            self.assertIn("Visible title", stdout)
+
+    def test_handoff_skips_malformed_entry_with_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            valid = {
+                "id": "1",
+                "timestamp": "2026-06-09T10:00:00+00:00",
+                "project": "alpha",
+                "title": "Valid",
+                "summary": "Only valid entry",
+                "tags": ["infra"],
+            }
+            with open(log_path, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps({"project": "alpha", "title": "Missing fields"}) + "\n")
+                handle.write(json.dumps(valid) + "\n")
+
+            exit_code, stdout, stderr = self.run_cli(["handoff"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Valid", stdout)
+            self.assertNotIn("Missing fields", stdout)
+            self.assertIn("warning:", stderr)
+
+    def test_module_invocation_handoff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            self.write_entries(log_path, self.sample_entries())
+            env = os.environ.copy()
+            env["BUILDLOG_PATH"] = log_path
+            result = subprocess.run(
+                [sys.executable, "-m", "buildlog", "handoff"],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("# Buildlog Handoff", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

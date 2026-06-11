@@ -19,9 +19,12 @@ python -m buildlog add \
 
 python -m buildlog list
 python -m buildlog list --project myapp --limit 5
+python -m buildlog list --tag cli
+python -m buildlog list --project myapp --tag v3
 python -m buildlog export
 python -m buildlog export --format jsonl
 python -m buildlog stats
+python -m buildlog handoff
 ```
 
 ### List behavior
@@ -59,6 +62,14 @@ Markdown export omits internal entry ids. The `Tags:` line is omitted when an en
 - `stats` prints total entries, unique project count, top tags (up to 5), and the latest entry.
 - Top tags are ordered by frequency descending, then alphabetically for ties.
 - With no stored entries, `stats` prints zero counts and `none` for tags and latest entry.
+
+### Handoff behavior
+
+- `handoff` prints a deterministic Markdown bundle for resuming work in a new session.
+- Includes recent shipping, active projects, recurring themes, and a paste-ready resume prompt.
+- `--limit` defaults to `5`; use `--limit 0` for all entries in recent shipping.
+- `--project` filters entries before building the handoff.
+- With no stored entries, all sections print `none` except the resume prompt, which suggests running `add`.
 
 Entries are stored as JSONL at `.buildlog/entries.jsonl` by default.
 

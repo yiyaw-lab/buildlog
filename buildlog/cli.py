@@ -5,6 +5,7 @@ import sys
 from buildlog import entries, storage
 
 DEFAULT_LIST_LIMIT = 20
+DEFAULT_HANDOFF_LIMIT = 5
 
 
 def build_parser():
@@ -19,6 +20,7 @@ def build_parser():
 
     list_parser = subparsers.add_parser("list", help="List recent build log entries.")
     list_parser.add_argument("--project")
+    list_parser.add_argument("--tag", action="append", default=[], dest="tags")
     list_parser.add_argument(
         "--limit",
         type=int,
@@ -35,6 +37,18 @@ def build_parser():
     )
 
     subparsers.add_parser("stats", help="Show a summary of stored build log entries.")
+
+    handoff_parser = subparsers.add_parser(
+        "handoff",
+        help="Generate an agent-ready session resume bundle.",
+    )
+    handoff_parser.add_argument("--project")
+    handoff_parser.add_argument(
+        "--limit",
+        type=int,
+        default=DEFAULT_HANDOFF_LIMIT,
+        help=f"Maximum recent entries to include (default: {DEFAULT_HANDOFF_LIMIT}). Use 0 for all.",
+    )
 
     return parser
 
@@ -118,17 +132,22 @@ def cmd_export(args):
     return 0
 
 
-def format_stats(entries):
+def _top_tags(entries, limit=5):
     tag_counts = {}
     for entry in entries:
         for tag in entry["tags"]:
             tag_counts[tag] = tag_counts.get(tag, 0) + 1
 
-    if tag_counts:
-        ranked_tags = sorted(tag_counts.items(), key=lambda item: (-item[1], item[0]))[:5]
-        top_tags_text = ", ".join(tag for tag, _ in ranked_tags)
-    else:
-        top_tags_text = "none"
+    if not tag_counts:
+        return []
+
+    ranked_tags = sorted(tag_counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    return [tag for tag, _ in ranked_tags]
+
+
+def format_stats(entries):
+    top_tags = _top_tags(entries)
+    top_tags_text = ", ".join(top_tags) if top_tags else "none"
 
     if entries:
         latest = max(entries, key=lambda entry: entry["timestamp"])
@@ -146,9 +165,121 @@ def format_stats(entries):
     )
 
 
+def _format_handoff_shipping_entry(entry):
+    date = entry["timestamp"][:10]
+    lines = [
+        f"- {date} — {entry['project']} — {entry['title']}",
+        f"  {entry['summary']}",
+    ]
+    if entry["tags"]:
+        lines.append(f"  Tags: {', '.join(entry['tags'])}")
+    return "\n".join(lines)
+
+
+def _format_active_projects(entries):
+    if not entries:
+        return "none"
+
+    by_project = {}
+    for entry in entries:
+        project = entry["project"]
+        date = entry["timestamp"][:10]
+        if project not in by_project:
+            by_project[project] = {"count": 0, "latest": date}
+        by_project[project]["count"] += 1
+        if date > by_project[project]["latest"]:
+            by_project[project]["latest"] = date
+
+    lines = []
+    for project, info in sorted(by_project.items(), key=lambda item: item[1]["latest"], reverse=True):
+        lines.append(f"- {project} ({info['count']} entries, latest: {info['latest']})")
+    return "\n".join(lines)
+
+
+def _format_resume_prompt(entries, selected):
+    if not entries:
+        return (
+            "No build log entries yet. Start by running "
+            "`python -m buildlog add ...` to record what you ship."
+        )
+
+    recent_lines = []
+    for entry in selected:
+        date = entry["timestamp"][:10]
+        recent_lines.append(
+            f"- [{date}] {entry['project']} — {entry['title']}: {entry['summary']}"
+        )
+
+    project_names = sorted({entry["project"] for entry in entries})
+    tag_text = ", ".join(_top_tags(entries)) or "none"
+
+    return "\n".join(
+        [
+            "You are resuming work on this builder project.",
+            "",
+            "Recent context:",
+            *recent_lines,
+            "",
+            f"Active projects: {', '.join(project_names)}",
+            f"Recurring themes: {tag_text}",
+            "",
+            "Pick up from the latest entry unless instructed otherwise. "
+            "Ask what changed since the last session before making multi-file edits.",
+        ]
+    )
+
+
+def format_handoff(entries, selected):
+    top_tags = _top_tags(entries)
+    themes = f"Top tags: {', '.join(top_tags)}" if top_tags else "none"
+
+    if selected:
+        shipping = "\n".join(_format_handoff_shipping_entry(entry) for entry in selected)
+    else:
+        shipping = "none"
+
+    return "\n".join(
+        [
+            "# Buildlog Handoff",
+            "",
+            "## Recent shipping",
+            shipping,
+            "",
+            "## Active projects",
+            _format_active_projects(entries),
+            "",
+            "## Recurring themes",
+            themes,
+            "",
+            "## Resume prompt",
+            _format_resume_prompt(entries, selected),
+        ]
+    )
+
+
 def cmd_stats():
     loaded = storage.load_entries()
     print(format_stats(loaded))
+    return 0
+
+
+def cmd_handoff(args):
+    if args.limit is not None and args.limit < 0:
+        print("error: limit must be zero or greater", file=sys.stderr)
+        return 1
+
+    loaded = storage.load_entries()
+    if args.project:
+        loaded = [entry for entry in loaded if entry["project"] == args.project]
+
+    loaded.sort(key=lambda entry: entry["timestamp"], reverse=True)
+
+    if args.limit == 0:
+        selected = loaded
+    else:
+        selected = loaded[: args.limit]
+
+    print(format_handoff(loaded, selected))
     return 0
 
 
@@ -164,6 +295,8 @@ def main(argv=None):
         return cmd_export(args)
     if args.command == "stats":
         return cmd_stats()
+    if args.command == "handoff":
+        return cmd_handoff(args)
 
     parser.print_help()
     return 1
