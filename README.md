@@ -6,25 +6,40 @@ A tiny local Python CLI for recording daily build logs.
 
 - Python 3.9+
 
-## Usage
+## Install
 
-Run commands from the repository root:
+Install locally in editable mode:
 
 ```bash
-python -m buildlog add \
+pip install -e .
+buildlog stats
+```
+
+You can also run without installing:
+
+```bash
+python -m buildlog stats
+```
+
+## Usage
+
+Run commands from the repository root (or anywhere, after install):
+
+```bash
+buildlog add \
   --project myapp \
   --title "Setup CLI" \
   --summary "Scaffolded buildlog commands" \
   --tag python --tag cli
 
-python -m buildlog list
-python -m buildlog list --project myapp --limit 5
-python -m buildlog list --tag cli
-python -m buildlog list --project myapp --tag v3
-python -m buildlog export
-python -m buildlog export --format jsonl
-python -m buildlog stats
-python -m buildlog handoff
+buildlog list
+buildlog list --project myapp --limit 5
+buildlog list --tag cli
+buildlog list --project myapp --tag v3
+buildlog export
+buildlog export --format jsonl
+buildlog stats
+buildlog handoff
 ```
 
 ### List behavior

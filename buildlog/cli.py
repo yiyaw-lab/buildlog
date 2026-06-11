@@ -305,5 +305,9 @@ def main(argv=None):
     return 1
 
 
-if __name__ == "__main__":
+def run():
     raise SystemExit(main())
+
+
+if __name__ == "__main__":
+    run()

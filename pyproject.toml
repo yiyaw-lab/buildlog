@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "buildlog"
+version = "0.1.0"
+description = "A tiny local CLI for recording daily build logs."
+readme = "README.md"
+requires-python = ">=3.9"
+
+[project.scripts]
+buildlog = "buildlog.cli:run"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["buildlog*"]
