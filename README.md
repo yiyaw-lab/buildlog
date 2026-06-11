@@ -30,6 +30,7 @@ python -m buildlog handoff
 ### List behavior
 
 - `list` shows the 20 most recent entries by default.
+- `list --tag` filters to entries containing at least one matching tag; repeat `--tag` to match any of several tags.
 - `list --limit 0` shows all entries.
 - `list --limit -1` exits with code `1`.
 - With no stored entries, `list` prints empty stdout.

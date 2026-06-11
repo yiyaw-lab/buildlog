@@ -132,6 +132,131 @@ class CliTests(unittest.TestCase):
             self.assertIn("alpha", lines[0])
             self.assertIn("New", lines[0])
 
+    def test_list_filters_by_tag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entries = [
+                {
+                    "id": "1",
+                    "timestamp": "2026-06-09T10:00:00+00:00",
+                    "project": "alpha",
+                    "title": "Tagged",
+                    "summary": "Has cli tag",
+                    "tags": ["cli"],
+                },
+                {
+                    "id": "2",
+                    "timestamp": "2026-06-09T11:00:00+00:00",
+                    "project": "beta",
+                    "title": "Untagged",
+                    "summary": "No cli tag",
+                    "tags": ["infra"],
+                },
+            ]
+            self.write_entries(log_path, entries)
+
+            exit_code, stdout, _ = self.run_cli(["list", "--tag", "cli"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            lines = [line for line in stdout.splitlines() if line.strip()]
+            self.assertEqual(len(lines), 1)
+            self.assertIn("Tagged", lines[0])
+            self.assertNotIn("Untagged", stdout)
+
+    def test_list_filters_by_project_and_tag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entries = [
+                {
+                    "id": "1",
+                    "timestamp": "2026-06-09T10:00:00+00:00",
+                    "project": "alpha",
+                    "title": "Alpha v3",
+                    "summary": "Match both filters",
+                    "tags": ["v3"],
+                },
+                {
+                    "id": "2",
+                    "timestamp": "2026-06-09T11:00:00+00:00",
+                    "project": "beta",
+                    "title": "Beta v3",
+                    "summary": "Wrong project",
+                    "tags": ["v3"],
+                },
+                {
+                    "id": "3",
+                    "timestamp": "2026-06-09T12:00:00+00:00",
+                    "project": "alpha",
+                    "title": "Alpha cli",
+                    "summary": "Wrong tag",
+                    "tags": ["cli"],
+                },
+            ]
+            self.write_entries(log_path, entries)
+
+            exit_code, stdout, _ = self.run_cli(
+                ["list", "--project", "alpha", "--tag", "v3"],
+                log_path,
+            )
+
+            self.assertEqual(exit_code, 0)
+            lines = [line for line in stdout.splitlines() if line.strip()]
+            self.assertEqual(len(lines), 1)
+            self.assertIn("Alpha v3", lines[0])
+
+    def test_list_filters_by_multiple_tags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entries = [
+                {
+                    "id": "1",
+                    "timestamp": "2026-06-09T10:00:00+00:00",
+                    "project": "alpha",
+                    "title": "Cli entry",
+                    "summary": "Cli tag",
+                    "tags": ["cli"],
+                },
+                {
+                    "id": "2",
+                    "timestamp": "2026-06-09T11:00:00+00:00",
+                    "project": "beta",
+                    "title": "Stats entry",
+                    "summary": "Stats tag",
+                    "tags": ["stats"],
+                },
+                {
+                    "id": "3",
+                    "timestamp": "2026-06-09T12:00:00+00:00",
+                    "project": "gamma",
+                    "title": "Other entry",
+                    "summary": "Different tag",
+                    "tags": ["infra"],
+                },
+            ]
+            self.write_entries(log_path, entries)
+
+            exit_code, stdout, _ = self.run_cli(
+                ["list", "--tag", "cli", "--tag", "stats"],
+                log_path,
+            )
+
+            self.assertEqual(exit_code, 0)
+            lines = [line for line in stdout.splitlines() if line.strip()]
+            self.assertEqual(len(lines), 2)
+            self.assertIn("Cli entry", stdout)
+            self.assertIn("Stats entry", stdout)
+            self.assertNotIn("Other entry", stdout)
+
+    def test_list_tag_filter_no_matches_prints_empty_stdout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            self.write_entries(log_path, self.sample_entries())
+
+            exit_code, stdout, _ = self.run_cli(["list", "--tag", "missing"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stdout, "")
+
     def test_list_limit_zero_returns_all_entries(self):
         with tempfile.TemporaryDirectory() as tmp:
             log_path = os.path.join(tmp, "entries.jsonl")

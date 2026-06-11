@@ -73,6 +73,9 @@ def cmd_list(args):
     loaded = storage.load_entries()
     if args.project:
         loaded = [entry for entry in loaded if entry["project"] == args.project]
+    if args.tags:
+        required_tags = set(args.tags)
+        loaded = [entry for entry in loaded if required_tags.intersection(entry["tags"])]
 
     loaded.sort(key=lambda entry: entry["timestamp"], reverse=True)
 
