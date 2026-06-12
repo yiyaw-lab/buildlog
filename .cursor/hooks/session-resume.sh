@@ -9,6 +9,9 @@ import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
+
+RESUME_FILE = Path(".buildlog/latest-resume.md")
 
 try:
     payload = json.loads(os.environ.get("HOOK_INPUT") or "{}")
@@ -62,6 +65,9 @@ context = (
 max_len = 8192
 if len(context) > max_len:
     context = context[:max_len] + "\n\n...(truncated)"
+
+RESUME_FILE.parent.mkdir(parents=True, exist_ok=True)
+RESUME_FILE.write_text(context + "\n", encoding="utf-8")
 
 print(json.dumps({"additional_context": context}))
 PY

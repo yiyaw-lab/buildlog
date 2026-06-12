@@ -1,0 +1,14 @@
+---
+description: Read buildlog resume context at session start for continuity across agent chats
+alwaysApply: true
+---
+
+# Buildlog continuity
+
+At the start of each Agent session in this repo, read `.buildlog/latest-resume.md` before making multi-file edits.
+
+That file is refreshed by the `sessionStart` hook (`.cursor/hooks/session-resume.sh`) and contains the latest `buildlog resume` output: recent shipping, active projects, git delta since the last logged entry, and a resume prompt.
+
+If the file is missing or empty, run `buildlog resume` (or `python -m buildlog resume`) and use that output as prior builder context.
+
+Use this context to understand what was last shipped and what changed since then. Ask the user what changed since the last logged entry when the git delta or summary is unclear.

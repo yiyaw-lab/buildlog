@@ -121,17 +121,20 @@ buildlog handoff | pbcopy   # log-only handoff without git delta
 
 ### Cursor hook (automatic resume)
 
-This repository includes a project hook that injects `buildlog resume` at agent session start.
+This repository includes a project hook that refreshes `buildlog resume` at agent session start.
 
 Files:
 
 - `.cursor/hooks.json`
 - `.cursor/hooks/session-resume.sh`
+- `.cursor/rules/buildlog-continuity.mdc`
 
 Behavior:
 
 - Runs on `sessionStart` for agent sessions in this repo.
-- Injects resume output as `additional_context` for the new conversation.
+- Writes resume output to `.buildlog/latest-resume.md` (reliable fallback).
+- Also returns `additional_context` for Cursor injection when supported.
+- The `buildlog-continuity` rule tells the agent to read `.buildlog/latest-resume.md` first.
 - Skips background agents and Ask mode.
 - Fails open: if `buildlog resume` fails, the session still starts with a short fallback message.
 
@@ -146,11 +149,12 @@ Verify:
 
 ```bash
 echo '{"is_background_agent": false, "composer_mode": "agent"}' | .cursor/hooks/session-resume.sh | python3 -c "import json,sys; print('ok' if json.load(sys.stdin).get('additional_context') else 'missing')"
+head -20 .buildlog/latest-resume.md
 ```
 
 Then open a new Agent conversation and check the **Hooks** output channel for errors.
 
-Note: Some Cursor versions may not inject `sessionStart` context reliably due to a known timing issue. If the agent does not see resume context, run `buildlog resume | pbcopy` manually as a fallback.
+Note: Some Cursor versions do not inject `sessionStart` `additional_context` reliably due to a known timing issue. The file + rule fallback is the supported path: the hook writes `.buildlog/latest-resume.md`, and the agent reads it per `.cursor/rules/buildlog-continuity.mdc`. Manual fallback: `buildlog resume | pbcopy`.
 
 ### Show behavior
 
