@@ -5,7 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 from buildlog.cli import main
@@ -22,6 +22,35 @@ EMPTY_STATS_OUTPUT = "\n".join(
 
 
 class CliTests(unittest.TestCase):
+    @contextmanager
+    def working_directory(self, path):
+        previous = os.getcwd()
+        os.chdir(path)
+        try:
+            yield
+        finally:
+            os.chdir(previous)
+
+    def init_git_repo(self, tmp, filename="file.txt", content="hello", message="initial"):
+        subprocess.run(["git", "init"], cwd=tmp, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=tmp,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"],
+            cwd=tmp,
+            check=True,
+            capture_output=True,
+        )
+        file_path = os.path.join(tmp, filename)
+        with open(file_path, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        subprocess.run(["git", "add", filename], cwd=tmp, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", message], cwd=tmp, check=True, capture_output=True)
+
     def run_cli(self, args, log_path):
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -1034,6 +1063,175 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("Title: Module show", result.stdout)
+
+    def test_add_capture_git_attaches_git_field(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.init_git_repo(tmp)
+            log_path = os.path.join(tmp, "entries.jsonl")
+            with self.working_directory(tmp):
+                exit_code, _, stderr = self.run_cli(
+                    [
+                        "add",
+                        "--project",
+                        "alpha",
+                        "--title",
+                        "Capture git",
+                        "--summary",
+                        "Store repo snapshot",
+                        "--capture-git",
+                    ],
+                    log_path,
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stderr, "")
+            with open(log_path, encoding="utf-8") as handle:
+                entry = json.loads(handle.readline())
+            self.assertIn("git", entry)
+            self.assertTrue(entry["git"]["branch"])
+            self.assertEqual(len(entry["git"]["commit"]), 40)
+
+    def test_add_capture_git_warns_outside_repo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            with self.working_directory(tmp):
+                exit_code, _, stderr = self.run_cli(
+                    [
+                        "add",
+                        "--project",
+                        "alpha",
+                        "--title",
+                        "No git",
+                        "--summary",
+                        "Still saved",
+                        "--capture-git",
+                    ],
+                    log_path,
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("warning:", stderr)
+            with open(log_path, encoding="utf-8") as handle:
+                entry = json.loads(handle.readline())
+            self.assertNotIn("git", entry)
+
+    def test_resume_empty_storage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "missing.jsonl")
+            exit_code, stdout, _ = self.run_cli(["resume"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("# Buildlog Resume", stdout)
+            self.assertIn("## Last logged session", stdout)
+            self.assertIn("none", stdout)
+            self.assertIn("python -m buildlog add", stdout)
+
+    def test_resume_with_anchor_and_commits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.init_git_repo(tmp, message="first")
+            log_path = os.path.join(tmp, "entries.jsonl")
+            with self.working_directory(tmp):
+                self.run_cli(
+                    [
+                        "add",
+                        "--project",
+                        "alpha",
+                        "--title",
+                        "First commit",
+                        "--summary",
+                        "Anchor entry",
+                        "--capture-git",
+                    ],
+                    log_path,
+                )
+                with open("second.txt", "w", encoding="utf-8") as handle:
+                    handle.write("second")
+                subprocess.run(["git", "add", "second.txt"], check=True, capture_output=True)
+                subprocess.run(["git", "commit", "-m", "second"], check=True, capture_output=True)
+                exit_code, stdout, _ = self.run_cli(["resume"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("## Last logged session", stdout)
+            self.assertIn("First commit", stdout)
+            self.assertIn("Commits: 1", stdout)
+            self.assertIn("second", stdout)
+
+    def test_resume_filters_by_project(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entries = [
+                {
+                    "id": "1",
+                    "timestamp": "2026-06-09T10:00:00+00:00",
+                    "project": "alpha",
+                    "title": "Alpha entry",
+                    "summary": "Alpha work",
+                    "tags": [],
+                },
+                {
+                    "id": "2",
+                    "timestamp": "2026-06-10T12:00:00+00:00",
+                    "project": "beta",
+                    "title": "Beta entry",
+                    "summary": "Beta work",
+                    "tags": [],
+                },
+            ]
+            self.write_entries(log_path, entries)
+            exit_code, stdout, _ = self.run_cli(["resume", "--project", "alpha"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Alpha entry", stdout)
+            self.assertNotIn("Beta entry", stdout)
+
+    def test_resume_not_in_git_repo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            self.write_entries(log_path, self.sample_entries())
+            with self.working_directory(tmp):
+                exit_code, stdout, _ = self.run_cli(["resume"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            since_section = stdout.split("## Since that entry")[1].split("## Recent shipping")[0]
+            self.assertIn("none", since_section)
+
+    def test_resume_respects_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entries = [
+                {
+                    "id": str(index),
+                    "timestamp": f"2026-06-0{index}T10:00:00+00:00",
+                    "project": "alpha",
+                    "title": f"Entry {index}",
+                    "summary": f"Summary {index}",
+                    "tags": [],
+                }
+                for index in range(1, 4)
+            ]
+            self.write_entries(log_path, entries)
+            exit_code, stdout, _ = self.run_cli(["resume", "--limit", "2"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            shipping_section = stdout.split("## Active projects")[0].split("## Recent shipping")[1]
+            self.assertEqual(shipping_section.count("- 2026-06-"), 2)
+
+    def test_module_invocation_resume(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            self.write_entries(log_path, self.sample_entries())
+            env = os.environ.copy()
+            env["BUILDLOG_PATH"] = log_path
+            result = subprocess.run(
+                [sys.executable, "-m", "buildlog", "resume"],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("# Buildlog Resume", result.stdout)
 
 
 if __name__ == "__main__":

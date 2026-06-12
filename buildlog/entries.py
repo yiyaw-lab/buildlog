@@ -14,7 +14,7 @@ def normalize_tags(tags):
     return normalized
 
 
-def make_entry(project, title, summary, tags=None):
+def make_entry(project, title, summary, tags=None, git=None):
     project = project.strip()
     title = title.strip()
     summary = summary.strip()
@@ -26,7 +26,7 @@ def make_entry(project, title, summary, tags=None):
     if not summary:
         raise ValueError("summary must not be empty")
 
-    return {
+    entry = {
         "id": uuid.uuid4().hex,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "project": project,
@@ -34,3 +34,6 @@ def make_entry(project, title, summary, tags=None):
         "summary": summary,
         "tags": normalize_tags(tags or []),
     }
+    if git is not None:
+        entry["git"] = git
+    return entry

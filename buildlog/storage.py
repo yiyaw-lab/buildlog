@@ -7,6 +7,17 @@ DEFAULT_LOG_PATH = ".buildlog/entries.jsonl"
 REQUIRED_STRING_FIELDS = ("id", "timestamp", "project", "title", "summary")
 
 
+def is_valid_git(git):
+    if not isinstance(git, dict):
+        return False
+    for field in ("branch", "commit"):
+        if field not in git or not isinstance(git[field], str):
+            return False
+    if "dirty" not in git or not isinstance(git["dirty"], bool):
+        return False
+    return True
+
+
 def is_valid_entry(entry):
     if not isinstance(entry, dict):
         return False
@@ -19,6 +30,10 @@ def is_valid_entry(entry):
     if not isinstance(tags, list):
         return False
     if not all(isinstance(tag, str) for tag in tags):
+        return False
+
+    git = entry.get("git")
+    if git is not None and not is_valid_git(git):
         return False
 
     return True

@@ -52,7 +52,9 @@ buildlog export
 buildlog export --format jsonl
 buildlog stats
 buildlog handoff
+buildlog resume
 buildlog show --id 5562be1f
+buildlog add ... --capture-git
 ```
 
 ### List behavior
@@ -103,9 +105,19 @@ Markdown export omits internal entry ids. The `Tags:` line is omitted when an en
 Typical workflow:
 
 ```bash
-buildlog add --project myapp --title "Ship feature X" --summary "What changed and why"
-buildlog handoff | pbcopy   # paste into your next agent session
+buildlog add --project myapp --title "Ship feature X" --summary "What changed and why" --capture-git
+buildlog resume | pbcopy    # paste into your next agent session with git context
+buildlog handoff | pbcopy   # log-only handoff without git delta
 ```
+
+### Resume behavior
+
+- `resume` is the git-aware continuity command: last logged session plus repo changes since that entry.
+- Includes handoff-style sections (recent shipping, active projects, recurring themes) and an enhanced resume prompt.
+- `--limit` defaults to `5`; use `--limit 0` for all entries in recent shipping.
+- `--project` anchors on the latest entry for that project and filters the bundle.
+- Run from the project repository when you want git context. Outside a git repo, git sections print `none`.
+- Use `add --capture-git` to store branch, commit, and dirty state on an entry for more accurate deltas.
 
 ### Show behavior
 
@@ -131,6 +143,5 @@ python -m unittest
 ## Project notes
 
 - `buildlog` is a continuity system first: capture intent locally, resume agents quickly.
-- Planned next: `resume` with git-aware context since your last logged entry.
 - Agent behavior is defined in `AGENTS.md`.
 - Sensitive and generated paths are excluded via `.cursorignore`.

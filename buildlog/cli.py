@@ -2,7 +2,7 @@ import argparse
 import json
 import sys
 
-from buildlog import entries, storage
+from buildlog import entries, git_context, storage
 
 DEFAULT_LIST_LIMIT = 20
 DEFAULT_HANDOFF_LIMIT = 5
@@ -17,6 +17,11 @@ def build_parser():
     add_parser.add_argument("--title", required=True)
     add_parser.add_argument("--summary", required=True)
     add_parser.add_argument("--tag", action="append", default=[], dest="tags")
+    add_parser.add_argument(
+        "--capture-git",
+        action="store_true",
+        help="Attach current git branch, commit, and dirty state to the entry.",
+    )
 
     list_parser = subparsers.add_parser("list", help="List recent build log entries.")
     list_parser.add_argument("--project")
@@ -53,12 +58,36 @@ def build_parser():
     show_parser = subparsers.add_parser("show", help="Show a single build log entry by id.")
     show_parser.add_argument("--id", required=True, help="Entry id or unique id prefix.")
 
+    resume_parser = subparsers.add_parser(
+        "resume",
+        help="Generate a continuity bundle with git changes since the last entry.",
+    )
+    resume_parser.add_argument("--project")
+    resume_parser.add_argument(
+        "--limit",
+        type=int,
+        default=DEFAULT_HANDOFF_LIMIT,
+        help=f"Maximum recent entries to include (default: {DEFAULT_HANDOFF_LIMIT}). Use 0 for all.",
+    )
+
     return parser
 
 
 def cmd_add(args):
     try:
-        entry = entries.make_entry(args.project, args.title, args.summary, args.tags)
+        git_info = None
+        if args.capture_git:
+            git_info, warning = git_context.capture_git_context()
+            if warning:
+                git_context.warn(warning)
+
+        entry = entries.make_entry(
+            args.project,
+            args.title,
+            args.summary,
+            args.tags,
+            git=git_info,
+        )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -263,6 +292,128 @@ def format_handoff(entries, selected):
     )
 
 
+def _format_last_logged_session(anchor):
+    date = anchor["timestamp"][:10]
+    lines = [
+        f"{date} — {anchor['project']} — {anchor['title']}",
+        anchor["summary"],
+    ]
+    if anchor["tags"]:
+        lines.append(f"Tags: {', '.join(anchor['tags'])}")
+
+    git_info = anchor.get("git")
+    if isinstance(git_info, dict):
+        short_commit = git_info["commit"][:7]
+        state = "dirty" if git_info["dirty"] else "clean"
+        lines.append(f"Recorded at commit: {short_commit} ({git_info['branch']}, {state})")
+
+    return "\n".join(lines)
+
+
+def _format_resume_prompt_with_git(entries, selected, anchor, git_delta):
+    if not entries:
+        return (
+            "No build log entries yet. Start by running "
+            "`python -m buildlog add ...` to record what you ship."
+        )
+
+    recent_lines = []
+    for entry in selected:
+        date = entry["timestamp"][:10]
+        recent_lines.append(
+            f"- [{date}] {entry['project']} — {entry['title']}: {entry['summary']}"
+        )
+
+    project_names = sorted({entry["project"] for entry in entries})
+    tag_text = ", ".join(_top_tags(entries)) or "none"
+    anchor_date = anchor["timestamp"][:10]
+
+    git_lines = []
+    if git_delta["available"]:
+        git_lines.append(
+            f"- {git_delta['commit_count']} commit(s) on {git_delta['branch']} since last log"
+        )
+        git_lines.append(f"- Working tree: {git_delta['working_tree']}")
+    else:
+        git_lines.append("- Git context unavailable")
+
+    return "\n".join(
+        [
+            f"You are resuming work on {anchor['project']}.",
+            "",
+            "Last recorded intent:",
+            f"- [{anchor_date}] {anchor['project']} — {anchor['title']}: {anchor['summary']}",
+            "",
+            "Recent context:",
+            *recent_lines,
+            "",
+            "Code changes since then:",
+            *git_lines,
+            "",
+            f"Active projects: {', '.join(project_names)}",
+            f"Recurring themes: {tag_text}",
+            "",
+            "Pick up from the latest entry unless instructed otherwise. "
+            "Ask what changed since the last session before making multi-file edits.",
+        ]
+    )
+
+
+def format_resume(anchor, entries, selected, git_delta):
+    if not entries:
+        return "\n".join(
+            [
+                "# Buildlog Resume",
+                "",
+                "## Last logged session",
+                "none",
+                "",
+                "## Since that entry",
+                "none",
+                "",
+                "## Recent shipping",
+                "none",
+                "",
+                "## Active projects",
+                "none",
+                "",
+                "## Recurring themes",
+                "none",
+                "",
+                "## Resume prompt",
+                _format_resume_prompt_with_git(entries, selected, anchor, git_delta),
+            ]
+        )
+
+    top_tags = _top_tags(entries)
+    themes = f"Top tags: {', '.join(top_tags)}" if top_tags else "none"
+    shipping = "\n".join(_format_handoff_shipping_entry(entry) for entry in selected)
+
+    return "\n".join(
+        [
+            "# Buildlog Resume",
+            "",
+            "## Last logged session",
+            _format_last_logged_session(anchor),
+            "",
+            "## Since that entry",
+            git_delta["text"],
+            "",
+            "## Recent shipping",
+            shipping,
+            "",
+            "## Active projects",
+            _format_active_projects(entries),
+            "",
+            "## Recurring themes",
+            themes,
+            "",
+            "## Resume prompt",
+            _format_resume_prompt_with_git(entries, selected, anchor, git_delta),
+        ]
+    )
+
+
 def cmd_stats():
     loaded = storage.load_entries()
     print(format_stats(loaded))
@@ -286,6 +437,32 @@ def cmd_handoff(args):
         selected = loaded[: args.limit]
 
     print(format_handoff(loaded, selected))
+    return 0
+
+
+def cmd_resume(args):
+    if args.limit is not None and args.limit < 0:
+        print("error: limit must be zero or greater", file=sys.stderr)
+        return 1
+
+    loaded = storage.load_entries()
+    if args.project:
+        loaded = [entry for entry in loaded if entry["project"] == args.project]
+
+    loaded.sort(key=lambda entry: entry["timestamp"], reverse=True)
+
+    if args.limit == 0:
+        selected = loaded
+    else:
+        selected = loaded[: args.limit]
+
+    anchor = loaded[0] if loaded else None
+    git_delta = (
+        git_context.format_git_delta_since(anchor)
+        if anchor
+        else {"available": False, "text": "none", "branch": None, "commit_count": 0, "working_tree": None}
+    )
+    print(format_resume(anchor, loaded, selected, git_delta))
     return 0
 
 
@@ -351,6 +528,8 @@ def main(argv=None):
         return cmd_handoff(args)
     if args.command == "show":
         return cmd_show(args)
+    if args.command == "resume":
+        return cmd_resume(args)
 
     parser.print_help()
     return 1
