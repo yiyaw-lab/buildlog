@@ -6,6 +6,13 @@
         "command": ".cursor/hooks/session-resume.sh",
         "timeout": 15
       }
+    ],
+    "stop": [
+      {
+        "command": ".cursor/hooks/session-capture.sh",
+        "timeout": 10,
+        "loop_limit": 1
+      }
     ]
   }
 }

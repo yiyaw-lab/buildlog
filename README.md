@@ -156,6 +156,29 @@ Then open a new Agent conversation and check the **Hooks** output channel for er
 
 Note: Some Cursor versions do not inject `sessionStart` `additional_context` reliably due to a known timing issue. The file + rule fallback is the supported path: the hook writes `.buildlog/latest-resume.md`, and the agent reads it per `.cursor/rules/buildlog-continuity.mdc`. Manual fallback: `buildlog resume | pbcopy`.
 
+### Cursor hook (capture at session end)
+
+A `stop` hook prompts you to log what shipped when an agent run completes.
+
+Files:
+
+- `.cursor/hooks/session-capture.sh`
+
+Behavior:
+
+- Runs when the agent loop ends with `status: completed`.
+- Returns a one-time `followup_message` asking the agent to run `buildlog add ... --capture-git`.
+- `loop_limit: 1` — at most one capture prompt per conversation.
+- Skips aborted or error sessions.
+- Fails open: hook errors produce no follow-up.
+
+Verify:
+
+```bash
+echo '{"status": "completed", "loop_count": 0}' | .cursor/hooks/session-capture.sh | python3 -c "import json,sys; print('ok' if json.load(sys.stdin).get('followup_message') else 'missing')"
+echo '{"status": "completed", "loop_count": 1}' | .cursor/hooks/session-capture.sh | python3 -c "import json,sys; print('skip' if json.load(sys.stdin) == {} else 'unexpected')"
+```
+
 ### Show behavior
 
 - `show --id` prints one entry in a human-readable detail view, including the internal id.

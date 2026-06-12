@@ -12,3 +12,5 @@ That file is refreshed by the `sessionStart` hook (`.cursor/hooks/session-resume
 If the file is missing or empty, run `buildlog resume` (or `python -m buildlog resume`) and use that output as prior builder context.
 
 Use this context to understand what was last shipped and what changed since then. Ask the user what changed since the last logged entry when the git delta or summary is unclear.
+
+When a completed agent session ends, you may receive a follow-up prompt to log what shipped. Run `buildlog add ... --capture-git` with an accurate title and summary.
