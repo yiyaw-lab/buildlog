@@ -854,6 +854,187 @@ class CliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("# Buildlog Handoff", result.stdout)
 
+    def test_show_exact_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entry = {
+                "id": "5562be1f074b4bbab521c0793c63a3b0",
+                "timestamp": "2026-06-10T12:00:00+00:00",
+                "project": "cursor-sandbox",
+                "title": "Added stats",
+                "summary": "Implemented stats command",
+                "tags": ["stats", "v2"],
+            }
+            self.write_entries(log_path, [entry])
+
+            exit_code, stdout, _ = self.run_cli(
+                ["show", "--id", "5562be1f074b4bbab521c0793c63a3b0"],
+                log_path,
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("ID: 5562be1f074b4bbab521c0793c63a3b0", stdout)
+            self.assertIn("Project: cursor-sandbox", stdout)
+            self.assertIn("Title: Added stats", stdout)
+            self.assertIn("Summary: Implemented stats command", stdout)
+            self.assertIn("Tags: stats, v2", stdout)
+
+    def test_show_unique_prefix_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entry = {
+                "id": "5562be1f074b4bbab521c0793c63a3b0",
+                "timestamp": "2026-06-10T12:00:00+00:00",
+                "project": "cursor-sandbox",
+                "title": "Added stats",
+                "summary": "Implemented stats command",
+                "tags": ["stats"],
+            }
+            self.write_entries(log_path, [entry])
+
+            exit_code, stdout, _ = self.run_cli(["show", "--id", "5562be1f"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("ID: 5562be1f074b4bbab521c0793c63a3b0", stdout)
+
+    def test_show_normalizes_uppercase_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entry = {
+                "id": "abcdef0123456789abcdef0123456789",
+                "timestamp": "2026-06-10T12:00:00+00:00",
+                "project": "alpha",
+                "title": "Case test",
+                "summary": "Uppercase query",
+                "tags": [],
+            }
+            self.write_entries(log_path, [entry])
+
+            exit_code, stdout, _ = self.run_cli(
+                ["show", "--id", "ABCDEF0123456789ABCDEF0123456789"],
+                log_path,
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("ID: abcdef0123456789abcdef0123456789", stdout)
+
+    def test_show_ambiguous_prefix_exits_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entries = [
+                {
+                    "id": "abc11111111111111111111111111111",
+                    "timestamp": "2026-06-09T10:00:00+00:00",
+                    "project": "alpha",
+                    "title": "First",
+                    "summary": "One",
+                    "tags": [],
+                },
+                {
+                    "id": "abc222222222222222222222222222222",
+                    "timestamp": "2026-06-09T11:00:00+00:00",
+                    "project": "beta",
+                    "title": "Second",
+                    "summary": "Two",
+                    "tags": [],
+                },
+            ]
+            self.write_entries(log_path, entries)
+
+            exit_code, stdout, stderr = self.run_cli(["show", "--id", "abc"], log_path)
+
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(stdout, "")
+            self.assertIn("ambiguous id prefix", stderr)
+
+    def test_show_not_found_exits_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            self.write_entries(log_path, self.sample_entries())
+
+            exit_code, stdout, stderr = self.run_cli(["show", "--id", "missing"], log_path)
+
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(stdout, "")
+            self.assertIn("no entry found for id", stderr)
+
+    def test_show_omits_tags_line_when_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entry = {
+                "id": "11111111111111111111111111111111",
+                "timestamp": "2026-06-09T10:00:00+00:00",
+                "project": "alpha",
+                "title": "Untagged",
+                "summary": "No tags",
+                "tags": [],
+            }
+            self.write_entries(log_path, [entry])
+
+            exit_code, stdout, _ = self.run_cli(
+                ["show", "--id", "11111111111111111111111111111111"],
+                log_path,
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertNotIn("Tags:", stdout)
+
+    def test_show_skips_malformed_entry_with_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            valid = {
+                "id": "22222222222222222222222222222222",
+                "timestamp": "2026-06-09T10:00:00+00:00",
+                "project": "alpha",
+                "title": "Valid",
+                "summary": "Only valid entry",
+                "tags": ["infra"],
+            }
+            with open(log_path, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps({"project": "alpha", "title": "Missing fields"}) + "\n")
+                handle.write(json.dumps(valid) + "\n")
+
+            exit_code, stdout, stderr = self.run_cli(
+                ["show", "--id", "22222222222222222222222222222222"],
+                log_path,
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Title: Valid", stdout)
+            self.assertIn("warning:", stderr)
+
+    def test_module_invocation_show(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entry = {
+                "id": "33333333333333333333333333333333",
+                "timestamp": "2026-06-09T10:00:00+00:00",
+                "project": "alpha",
+                "title": "Module show",
+                "summary": "Works via python -m",
+                "tags": ["cli"],
+            }
+            self.write_entries(log_path, [entry])
+            env = os.environ.copy()
+            env["BUILDLOG_PATH"] = log_path
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "buildlog",
+                    "show",
+                    "--id",
+                    "33333333",
+                ],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("Title: Module show", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

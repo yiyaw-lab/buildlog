@@ -40,6 +40,7 @@ buildlog export
 buildlog export --format jsonl
 buildlog stats
 buildlog handoff
+buildlog show --id 5562be1f
 ```
 
 ### List behavior
@@ -86,6 +87,13 @@ Markdown export omits internal entry ids. The `Tags:` line is omitted when an en
 - `--limit` defaults to `5`; use `--limit 0` for all entries in recent shipping.
 - `--project` filters entries before building the handoff.
 - With no stored entries, all sections print `none` except the resume prompt, which suggests running `add`.
+
+### Show behavior
+
+- `show --id` prints one entry in a human-readable detail view, including the internal id.
+- Accepts a full id or a unique id prefix. Prefixes that match multiple entries exit with code `1`.
+- Entry ids are printed when you run `add` (`Added <id>`).
+- The `Tags:` line is omitted when an entry has no tags.
 
 Entries are stored as JSONL at `.buildlog/entries.jsonl` by default.
 

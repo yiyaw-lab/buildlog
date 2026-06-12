@@ -50,6 +50,9 @@ def build_parser():
         help=f"Maximum recent entries to include (default: {DEFAULT_HANDOFF_LIMIT}). Use 0 for all.",
     )
 
+    show_parser = subparsers.add_parser("show", help="Show a single build log entry by id.")
+    show_parser.add_argument("--id", required=True, help="Entry id or unique id prefix.")
+
     return parser
 
 
@@ -286,6 +289,52 @@ def cmd_handoff(args):
     return 0
 
 
+def find_entry_by_id(entries, id_query):
+    id_query = id_query.strip().lower()
+    exact_matches = [entry for entry in entries if entry["id"] == id_query]
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+
+    prefix_matches = [entry for entry in entries if entry["id"].startswith(id_query)]
+    if not prefix_matches:
+        return None
+    if len(prefix_matches) == 1:
+        return prefix_matches[0]
+    return "ambiguous"
+
+
+def format_entry_show(entry):
+    lines = [
+        f"ID: {entry['id']}",
+        f"Timestamp: {entry['timestamp']}",
+        f"Project: {entry['project']}",
+        f"Title: {entry['title']}",
+        f"Summary: {entry['summary']}",
+    ]
+    if entry["tags"]:
+        lines.append(f"Tags: {', '.join(entry['tags'])}")
+    return "\n".join(lines)
+
+
+def cmd_show(args):
+    id_query = args.id.strip()
+    if not id_query:
+        print("error: id must not be empty", file=sys.stderr)
+        return 1
+
+    loaded = storage.load_entries()
+    match = find_entry_by_id(loaded, id_query)
+    if match == "ambiguous":
+        print(f"error: ambiguous id prefix {id_query!r}", file=sys.stderr)
+        return 1
+    if match is None:
+        print(f"error: no entry found for id {id_query!r}", file=sys.stderr)
+        return 1
+
+    print(format_entry_show(match))
+    return 0
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -300,6 +349,8 @@ def main(argv=None):
         return cmd_stats()
     if args.command == "handoff":
         return cmd_handoff(args)
+    if args.command == "show":
+        return cmd_show(args)
 
     parser.print_help()
     return 1
