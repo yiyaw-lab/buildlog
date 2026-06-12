@@ -119,6 +119,39 @@ buildlog handoff | pbcopy   # log-only handoff without git delta
 - Run from the project repository when you want git context. Outside a git repo, git sections print `none`.
 - Use `add --capture-git` to store branch, commit, and dirty state on an entry for more accurate deltas.
 
+### Cursor hook (automatic resume)
+
+This repository includes a project hook that injects `buildlog resume` at agent session start.
+
+Files:
+
+- `.cursor/hooks.json`
+- `.cursor/hooks/session-resume.sh`
+
+Behavior:
+
+- Runs on `sessionStart` for agent sessions in this repo.
+- Injects resume output as `additional_context` for the new conversation.
+- Skips background agents and Ask mode.
+- Fails open: if `buildlog resume` fails, the session still starts with a short fallback message.
+
+Setup:
+
+```bash
+pip install -e .
+chmod +x .cursor/hooks/session-resume.sh
+```
+
+Verify:
+
+```bash
+echo '{"is_background_agent": false, "composer_mode": "agent"}' | .cursor/hooks/session-resume.sh | python3 -c "import json,sys; print('ok' if json.load(sys.stdin).get('additional_context') else 'missing')"
+```
+
+Then open a new Agent conversation and check the **Hooks** output channel for errors.
+
+Note: Some Cursor versions may not inject `sessionStart` context reliably due to a known timing issue. If the agent does not see resume context, run `buildlog resume | pbcopy` manually as a fallback.
+
 ### Show behavior
 
 - `show --id` prints one entry in a human-readable detail view, including the internal id.
