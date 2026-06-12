@@ -1,6 +1,18 @@
-# Cursor sandbox
+# buildlog
 
-A tiny local Python CLI for recording daily build logs.
+A local continuity system for builders who ship with agents.
+
+`buildlog` helps you never lose the thread of what you are building. It records daily build logs locally, then turns them into session-ready context you can paste into Cursor, Claude, or any other agent.
+
+Git shows diffs, not intent. Chat history is messy and ephemeral. Notes apps store thoughts, not shipping history. `buildlog` sits in the middle: a local source of truth for what you built, why it mattered, and how to resume.
+
+## What it does
+
+- **Capture** — record projects, titles, summaries, and tags as JSONL
+- **Review** — list, filter, inspect, and summarize your build history
+- **Resume** — generate agent-ready handoff bundles from recent work
+
+The goal is not another journal. The goal is continuity between you, your repos, and your agents.
 
 ## Requirements
 
@@ -82,11 +94,18 @@ Markdown export omits internal entry ids. The `Tags:` line is omitted when an en
 
 ### Handoff behavior
 
-- `handoff` prints a deterministic Markdown bundle for resuming work in a new session.
+- `handoff` is the core continuity command: a deterministic Markdown bundle for resuming work in a new session.
 - Includes recent shipping, active projects, recurring themes, and a paste-ready resume prompt.
 - `--limit` defaults to `5`; use `--limit 0` for all entries in recent shipping.
 - `--project` filters entries before building the handoff.
 - With no stored entries, all sections print `none` except the resume prompt, which suggests running `add`.
+
+Typical workflow:
+
+```bash
+buildlog add --project myapp --title "Ship feature X" --summary "What changed and why"
+buildlog handoff | pbcopy   # paste into your next agent session
+```
 
 ### Show behavior
 
@@ -111,5 +130,7 @@ python -m unittest
 
 ## Project notes
 
+- `buildlog` is a continuity system first: capture intent locally, resume agents quickly.
+- Planned next: `resume` with git-aware context since your last logged entry.
 - Agent behavior is defined in `AGENTS.md`.
 - Sensitive and generated paths are excluded via `.cursorignore`.
