@@ -25,3 +25,11 @@
 - Be concise.
 - Call out risks directly.
 - Separate facts, assumptions, and recommendations.
+
+## buildlog continuity
+
+This repo uses `buildlog` as its local continuity system.
+
+- At session start, read `.buildlog/latest-resume.md` (refreshed by the Cursor hook) before multi-file edits.
+- Use `buildlog add ... --capture-git` to record what shipped; use `buildlog decide` for meaningful technical choices.
+- When prompted at session end, log an accurate title and summary — intent matters as much as the diff.

@@ -7,10 +7,10 @@ alwaysApply: true
 
 At the start of each Agent session in this repo, read `.buildlog/latest-resume.md` before making multi-file edits.
 
-That file is refreshed by the `sessionStart` hook (`.cursor/hooks/session-resume.sh`) and contains the latest `buildlog resume` output: recent shipping, active projects, git delta since the last logged entry, and a resume prompt.
+That file is refreshed by the `sessionStart` hook (`.cursor/hooks/session-resume.sh`) and contains the latest `buildlog resume` output: last logged session, git delta since then, recent shipping, recent decisions, active projects, and a resume prompt.
 
-If the file is missing or empty, run `buildlog resume` (or `python -m buildlog resume`) and use that output as prior builder context.
+If the file is missing or empty, run `buildlog resume -o .buildlog/latest-resume.md` (or `python -m buildlog resume`) and use that output as prior builder context.
 
 Use this context to understand what was last shipped and what changed since then. Ask the user what changed since the last logged entry when the git delta or summary is unclear.
 
-When a completed agent session ends, you may receive a follow-up prompt to log what shipped. Run `buildlog add ... --capture-git` with an accurate title and summary.
+When a completed agent session ends, you may receive a follow-up prompt to log what shipped. Run `buildlog add ... --capture-git` with an accurate title and summary. Use `buildlog decide` when a meaningful technical choice was made.

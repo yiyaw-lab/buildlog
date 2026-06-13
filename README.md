@@ -2,91 +2,215 @@
 
 A local continuity system for builders who ship with agents.
 
-`buildlog` helps you never lose the thread of what you are building. It records daily build logs locally, then turns them into session-ready context you can paste into Cursor, Claude, or any other agent.
+**Repository:** [github.com/yiyaw-lab/buildlog](https://github.com/yiyaw-lab/buildlog)
+
+`buildlog` helps you never lose the thread of what you are building. It records what you ship and why you chose it, then turns that history into session-ready context for Cursor, Claude, or any other agent.
 
 Git shows diffs, not intent. Chat history is messy and ephemeral. Notes apps store thoughts, not shipping history. `buildlog` sits in the middle: a local source of truth for what you built, why it mattered, and how to resume.
 
 ## What it does
 
-- **Capture** — record projects, titles, summaries, tags, and decisions as JSONL
-- **Review** — list, filter, inspect, and summarize your build history
-- **Resume** — generate agent-ready handoff bundles from recent work
+- **Capture** — `add` records what you shipped; `decide` records why you chose it
+- **Review** — `list`, `show`, `stats`, and `export` summarize local JSONL history
+- **Resume** — `handoff` and `resume` generate agent-ready continuity bundles
 
 The goal is not another journal. The goal is continuity between you, your repos, and your agents.
+
+## Continuity loop
+
+```text
+session start  →  read resume context  →  work with agent  →  log what shipped  →  next session
+```
+
+In this repo, that loop is mostly automatic:
+
+1. **Session start** — a Cursor hook writes `buildlog resume` to `.buildlog/latest-resume.md`; the agent reads it via `.cursor/rules/buildlog-continuity.mdc`
+2. **During work** — use `add` for shipping notes and `decide` for ADR-lite reasoning
+3. **Session end** — a Cursor `stop` hook nudges you to run `buildlog add ... --capture-git`
+
+Manual fallback anytime:
+
+```bash
+buildlog resume -o .buildlog/latest-resume.md
+buildlog resume | pbcopy
+```
 
 ## Requirements
 
 - Python 3.9+
+- Stdlib only (no external dependencies)
 
 ## Install
 
-Install locally in editable mode:
+From a clone of the public repository:
+
+```bash
+git clone https://github.com/yiyaw-lab/buildlog.git
+cd buildlog
+pip install -e .
+buildlog stats
+```
+
+In an existing checkout:
 
 ```bash
 pip install -e .
 buildlog stats
 ```
 
-You can also run without installing:
+Without installing:
 
 ```bash
 python -m buildlog stats
 ```
 
+## Commands
+
+| Command | Purpose |
+|---------|---------|
+| `add` | Record what you shipped |
+| `decide` | Record a builder decision (choice + rationale) |
+| `list` | Show recent entries and decisions |
+| `show` | Inspect one record by id |
+| `stats` | Summary counts and top tags |
+| `export` | Export full log as Markdown or JSONL |
+| `handoff` | Agent bundle without git delta |
+| `resume` | Agent bundle with git changes since last log |
+
+Shared flags on several commands:
+
+- `--project` — filter or scope to one project
+- `--tag` — filter `list` by tag (repeatable)
+- `--limit` — cap results (`list` default 20; `handoff`/`resume` default 5; `0` = all)
+- `--capture-git` — attach branch, commit, and dirty state (`add`, `decide`)
+- `-o <path>` — write output to a file (`export`, `handoff`, `resume`)
+
 ## Usage
 
-Run commands from the repository root (or anywhere, after install):
-
 ```bash
+# Record shipping work
 buildlog add \
   --project myapp \
   --title "Setup CLI" \
   --summary "Scaffolded buildlog commands" \
-  --tag python --tag cli
+  --tag python --tag cli \
+  --capture-git
 
+# Record a decision
 buildlog decide \
   --project myapp \
   --choice "Use JSONL storage" \
   --rationale "Keeps one local file and reuses resume/handoff without a database." \
   --tag adr
 
+# Review
 buildlog list
 buildlog list --project myapp --limit 5
 buildlog list --tag cli
-buildlog list --project myapp --tag v3
+buildlog show --id 5562be1f
+buildlog stats
+
+# Export
 buildlog export
 buildlog export --format jsonl
 buildlog export -o buildlog.md
-buildlog stats
+
+# Resume work in a new agent session
 buildlog handoff
 buildlog handoff -o handoff.md
 buildlog resume
 buildlog resume -o .buildlog/latest-resume.md
-buildlog show --id 5562be1f
-buildlog add ... --capture-git
 ```
 
-### List behavior
+## Storage
 
-- `list` shows the 20 most recent entries by default.
-- `list --tag` filters to entries containing at least one matching tag; repeat `--tag` to match any of several tags.
-- `list --limit 0` shows all entries.
-- `list --limit -1` exits with code `1`.
-- With no stored entries, `list` prints empty stdout.
+Entries are stored as JSONL at `.buildlog/entries.jsonl` by default.
 
-### Export behavior
+Override for tests or custom setups:
 
-- `export` prints human-readable Markdown by default.
-- `export --format markdown` prints the same Markdown output.
-- `export --format jsonl` prints full raw JSONL entries, oldest first.
-- `export -o <path>` writes export output to a file instead of stdout.
-- With no stored entries, `export` prints empty stdout (or writes an empty file with `-o`).
+```bash
+BUILDLOG_PATH=/tmp/buildlog.jsonl python -m buildlog list
+```
 
-Markdown format:
+### Record shapes
+
+**Shipping entry** (default — no `kind` field):
+
+```json
+{
+  "id": "...",
+  "timestamp": "2026-06-12T12:00:00+00:00",
+  "project": "myapp",
+  "title": "Setup CLI",
+  "summary": "Scaffolded commands",
+  "tags": ["cli"],
+  "git": { "branch": "main", "commit": "...", "dirty": false }
+}
+```
+
+**Decision** (`kind: "decision"`):
+
+```json
+{
+  "kind": "decision",
+  "id": "...",
+  "timestamp": "2026-06-12T12:00:00+00:00",
+  "project": "myapp",
+  "choice": "Use JSONL storage",
+  "rationale": "One file, no database",
+  "tags": ["adr"]
+}
+```
+
+Malformed JSONL lines are skipped with a stderr warning.
+
+## Command reference
+
+### `add`
+
+- Required: `--project`, `--title`, `--summary`
+- Optional: `--tag` (repeatable), `--capture-git`
+- Prints `Added <id>` on success
+
+### `decide`
+
+- Required: `--project`, `--choice`, `--rationale`
+- Optional: `--tag` (repeatable), `--capture-git`
+- Stored with `kind: "decision"` in the same JSONL file
+- `list` shows `[decision]` before the choice text
+- `handoff` and `resume` include a `## Recent decisions` section
+- When decisions are present, the resume prompt warns agents not to contradict them without approval
+
+### `list`
+
+- Default limit: 20 (newest first)
+- `--limit 0` shows all; `--limit -1` exits with code `1`
+- Filters: `--project`, `--tag` (any match when repeated)
+- Empty storage prints empty stdout
+
+### `show`
+
+- `--id` accepts a full id or unique prefix
+- Shipping entries show `Title` and `Summary`
+- Decisions show `Kind: decision`, `Choice`, and `Rationale`
+- Ambiguous prefixes exit with code `1`
+
+### `stats`
+
+- Prints total entries, project count, top tags (up to 5), and latest entry
+- Top tags: frequency descending, then alphabetical for ties
+- Decisions count toward totals; latest entry may be a decision (`choice` shown instead of `title`)
+
+### `export`
+
+- Default: Markdown to stdout
+- `--format jsonl` — raw JSONL, oldest first
+- `-o <path>` — write to file (creates parent directories)
+- Empty storage: empty stdout, or empty file with `-o`
+
+Markdown shipping entry:
 
 ```markdown
-# Build Log
-
 ## YYYY-MM-DD — project
 
 ### title
@@ -96,59 +220,63 @@ summary
 Tags: tag1, tag2
 ```
 
-Markdown export omits internal entry ids. The `Tags:` line is omitted when an entry has no tags.
+Markdown decision:
 
-### Stats behavior
+```markdown
+## YYYY-MM-DD — project
 
-- `stats` prints total entries, unique project count, top tags (up to 5), and the latest entry.
-- Top tags are ordered by frequency descending, then alphabetically for ties.
-- With no stored entries, `stats` prints zero counts and `none` for tags and latest entry.
+### Decision: choice
 
-### Handoff behavior
+rationale
 
-- `handoff` is the core continuity command: a deterministic Markdown bundle for resuming work in a new session.
-- Includes recent shipping, active projects, recurring themes, and a paste-ready resume prompt.
-- `--limit` defaults to `5`; use `--limit 0` for all entries in recent shipping.
-- `--project` filters entries before building the handoff.
-- `-o <path>` writes handoff output to a file instead of stdout.
-- With no stored entries, all sections print `none` except the resume prompt, which suggests running `add`.
+Tags: tag1, tag2
+```
 
-Typical workflow:
+Internal ids are omitted from Markdown export. The `Tags:` line is omitted when there are no tags.
+
+### `handoff`
+
+- Markdown bundle: recent shipping, active projects, recurring themes, recent decisions, resume prompt
+- No git delta — use when you only need log context
+- `--project`, `--limit`, `-o` supported
+- Empty storage: sections print `none` except the resume prompt (suggests running `add`)
+
+### `resume`
+
+- Markdown bundle like `handoff`, plus:
+  - **Last logged session** — anchor entry with optional git snapshot
+  - **Since that entry** — commits and working tree changes since that log
+- Run from a git repo for delta context; outside a repo, git sections print `none`
+- `--project`, `--limit`, `-o` supported
+- Use `add --capture-git` / `decide --capture-git` for more accurate deltas
+
+Typical handoff:
 
 ```bash
 buildlog add --project myapp --title "Ship feature X" --summary "What changed and why" --capture-git
-buildlog resume | pbcopy    # paste into your next agent session with git context
-buildlog handoff | pbcopy   # log-only handoff without git delta
+buildlog resume | pbcopy          # git-aware — preferred
+buildlog handoff | pbcopy         # log-only, no git delta
+buildlog resume -o .buildlog/latest-resume.md
 ```
 
-### Resume behavior
+## Cursor hooks
 
-- `resume` is the git-aware continuity command: last logged session plus repo changes since that entry.
-- Includes handoff-style sections (recent shipping, active projects, recurring themes) and an enhanced resume prompt.
-- `--limit` defaults to `5`; use `--limit 0` for all entries in recent shipping.
-- `--project` anchors on the latest entry for that project and filters the bundle.
-- `-o <path>` writes resume output to a file instead of stdout.
-- Run from the project repository when you want git context. Outside a git repo, git sections print `none`.
-- Use `add --capture-git` to store branch, commit, and dirty state on an entry for more accurate deltas.
+This repo includes project hooks for automatic continuity.
 
-### Cursor hook (automatic resume)
+### Session start (resume)
 
-This repository includes a project hook that refreshes `buildlog resume` at agent session start.
-
-Files:
-
-- `.cursor/hooks.json`
-- `.cursor/hooks/session-resume.sh`
-- `.cursor/rules/buildlog-continuity.mdc`
+| File | Role |
+|------|------|
+| `.cursor/hooks.json` | Registers hooks |
+| `.cursor/hooks/session-resume.sh` | Runs `buildlog resume` on `sessionStart` |
+| `.cursor/rules/buildlog-continuity.mdc` | Tells the agent to read `.buildlog/latest-resume.md` |
 
 Behavior:
 
-- Runs on `sessionStart` for agent sessions in this repo.
-- Writes resume output to `.buildlog/latest-resume.md` (reliable fallback).
-- Also returns `additional_context` for Cursor injection when supported.
-- The `buildlog-continuity` rule tells the agent to read `.buildlog/latest-resume.md` first.
-- Skips background agents and Ask mode.
-- Fails open: if `buildlog resume` fails, the session still starts with a short fallback message.
+- Writes resume output to `.buildlog/latest-resume.md`
+- Also returns `additional_context` when Cursor supports it
+- Skips background agents and Ask mode
+- Fails open on errors
 
 Setup:
 
@@ -164,58 +292,25 @@ echo '{"is_background_agent": false, "composer_mode": "agent"}' | .cursor/hooks/
 head -20 .buildlog/latest-resume.md
 ```
 
-Then open a new Agent conversation and check the **Hooks** output channel for errors.
+**Known limitation:** Some Cursor versions drop `sessionStart` `additional_context` due to a timing bug. The file + rule fallback is the supported path. Manual fallback: `buildlog resume | pbcopy` or `buildlog resume -o .buildlog/latest-resume.md`.
 
-Note: Some Cursor versions do not inject `sessionStart` `additional_context` reliably due to a known timing issue. The file + rule fallback is the supported path: the hook writes `.buildlog/latest-resume.md`, and the agent reads it per `.cursor/rules/buildlog-continuity.mdc`. Manual fallback: `buildlog resume | pbcopy`.
+### Session end (capture)
 
-### Cursor hook (capture at session end)
-
-A `stop` hook prompts you to log what shipped when an agent run completes.
-
-Files:
-
-- `.cursor/hooks/session-capture.sh`
+| File | Role |
+|------|------|
+| `.cursor/hooks/session-capture.sh` | Prompts logging on `stop` |
 
 Behavior:
 
-- Runs when the agent loop ends with `status: completed`.
-- Returns a one-time `followup_message` asking the agent to run `buildlog add ... --capture-git`.
-- `loop_limit: 1` — at most one capture prompt per conversation.
-- Skips aborted or error sessions.
-- Fails open: hook errors produce no follow-up.
+- Fires when the agent loop ends with `status: completed`
+- Returns a one-time `followup_message` to run `buildlog add ... --capture-git`
+- `loop_limit: 1` per conversation
+- Skips aborted/error sessions; fails open
 
 Verify:
 
 ```bash
 echo '{"status": "completed", "loop_count": 0}' | .cursor/hooks/session-capture.sh | python3 -c "import json,sys; print('ok' if json.load(sys.stdin).get('followup_message') else 'missing')"
-echo '{"status": "completed", "loop_count": 1}' | .cursor/hooks/session-capture.sh | python3 -c "import json,sys; print('skip' if json.load(sys.stdin) == {} else 'unexpected')"
-```
-
-### Show behavior
-
-- `show --id` prints one record in a human-readable detail view, including the internal id.
-- Shipping entries show `Title` and `Summary`. Decisions show `Kind: decision`, `Choice`, and `Rationale`.
-- Accepts a full id or a unique id prefix. Prefixes that match multiple entries exit with code `1`.
-- Entry ids are printed when you run `add` or `decide` (`Added <id>`).
-- The `Tags:` line is omitted when an entry has no tags.
-
-### Decide behavior
-
-- `decide` records ADR-lite builder decisions in the same JSONL file with `kind: "decision"`.
-- Required fields: `--project`, `--choice`, `--rationale`.
-- Optional: `--tag` (repeatable), `--capture-git`.
-- `list` marks decisions with `[decision]` before the choice text.
-- `export` renders decisions as `### Decision: <choice>` in Markdown.
-- `handoff` and `resume` include a `## Recent decisions` section (up to `--limit`, default 5).
-- When decisions are present, the resume prompt reminds the agent not to contradict them without approval.
-- Legacy shipping entries without `kind` continue to load unchanged.
-
-Entries are stored as JSONL at `.buildlog/entries.jsonl` by default.
-
-Override the storage path for tests or custom setups:
-
-```bash
-BUILDLOG_PATH=/tmp/buildlog.jsonl python -m buildlog list
 ```
 
 ## Tests
@@ -229,3 +324,4 @@ python -m unittest
 - `buildlog` is a continuity system first: capture intent locally, resume agents quickly.
 - Agent behavior is defined in `AGENTS.md`.
 - Sensitive and generated paths are excluded via `.cursorignore`.
+- `.buildlog/` is gitignored; hooks refresh `.buildlog/latest-resume.md` locally.

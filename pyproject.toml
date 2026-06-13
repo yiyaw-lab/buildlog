@@ -5,9 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "buildlog"
 version = "0.1.0"
-description = "A tiny local CLI for recording daily build logs."
+description = "A local continuity CLI for builders who ship with agents."
 readme = "README.md"
 requires-python = ">=3.9"
+
+[project.urls]
+Homepage = "https://github.com/yiyaw-lab/buildlog"
+Repository = "https://github.com/yiyaw-lab/buildlog"
+Issues = "https://github.com/yiyaw-lab/buildlog/issues"
 
 [project.scripts]
 buildlog = "buildlog.cli:run"
