@@ -3,17 +3,19 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "buildlog"
+name = "buildlog-cli"
 version = "0.1.0"
 description = "A local continuity CLI for builders who ship with agents."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
+license = "MIT"
+authors = [{ name = "Yiya Wang", email = "4tisimo@gmail.com" }]
 
 [project.urls]
 Homepage = "https://github.com/yiyaw-lab/buildlog"
 Repository = "https://github.com/yiyaw-lab/buildlog"
 Issues = "https://github.com/yiyaw-lab/buildlog/issues"
+Documentation = "https://github.com/yiyaw-lab/buildlog#readme"
 
 [project.scripts]
 buildlog = "buildlog.cli:run"

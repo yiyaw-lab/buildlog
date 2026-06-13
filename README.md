@@ -35,12 +35,61 @@ buildlog resume -o .buildlog/latest-resume.md
 buildlog resume | pbcopy
 ```
 
+## Example: `buildlog resume`
+
+```text
+$ buildlog resume
+
+# Buildlog Resume
+
+## Last logged session
+2026-06-13 — buildlog — Prepared public release
+Added MIT license, GitHub Actions CI, sensitive-doc gitignore, and public repo branding.
+Recorded at commit: 43a1db6 (main, clean)
+
+## Since that entry
+Branch: main
+Commits: 0
+- No commits since last logged entry.
+
+Working tree:
+- clean
+
+## Recent shipping
+- 2026-06-13 — buildlog — Prepared public release
+  Added MIT license, GitHub Actions CI, sensitive-doc gitignore, and public repo branding.
+- 2026-06-12 — cursor-sandbox — Shipped continuity system: handoff, resume, and Cursor hook
+  ...
+
+## Recent decisions
+none
+
+## Resume prompt
+You are resuming work on buildlog.
+
+Last recorded intent:
+- [2026-06-13] buildlog — Prepared public release: Added MIT license, GitHub Actions CI...
+
+Code changes since then:
+- 0 commit(s) on main since last log
+- Working tree: clean
+
+Pick up from the latest entry unless instructed otherwise.
+```
+
 ## Requirements
 
 - Python 3.9+
 - Stdlib only (no external dependencies)
 
 ## Install
+
+From PyPI (package name is `buildlog-cli`; the command is still `buildlog`):
+
+```bash
+pip install buildlog-cli
+buildlog stats
+```
 
 From a clone of the public repository:
 
@@ -63,6 +112,20 @@ Without installing:
 ```bash
 python -m buildlog stats
 ```
+
+### Publish to PyPI (maintainers)
+
+The PyPI package name is **`buildlog-cli`** because `buildlog` is already taken. The installed command is still `buildlog`.
+
+One-time setup:
+
+1. On [pypi.org](https://pypi.org), add a **trusted publisher** for project `buildlog-cli`:
+   - Owner: `yiyaw-lab`
+   - Repository: `buildlog`
+   - Workflow: `publish.yml`
+   - Environment: `pypi` (optional but recommended)
+2. In GitHub repo **Settings → Environments**, create an environment named `pypi`.
+3. Create a GitHub **Release** (e.g. `v0.1.1`) — the `Publish` workflow uploads to PyPI automatically.
 
 ## Commands
 
@@ -326,3 +389,4 @@ python -m unittest
 - Sensitive and generated paths are excluded via `.cursorignore` and `.gitignore`.
 - `.buildlog/` is gitignored; hooks refresh `.buildlog/latest-resume.md` locally.
 - Licensed under MIT — see `LICENSE`.
+- PyPI package: `buildlog-cli` (`pip install buildlog-cli`). The PyPI name `buildlog` is taken by another project.
