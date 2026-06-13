@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from buildlog import entries, git_context, storage
 
@@ -40,6 +41,11 @@ def build_parser():
         default="markdown",
         help="Output format (default: markdown).",
     )
+    export_parser.add_argument(
+        "-o",
+        "--output",
+        help="Write export output to a file instead of stdout.",
+    )
 
     subparsers.add_parser("stats", help="Show a summary of stored build log entries.")
 
@@ -53,6 +59,11 @@ def build_parser():
         type=int,
         default=DEFAULT_HANDOFF_LIMIT,
         help=f"Maximum recent entries to include (default: {DEFAULT_HANDOFF_LIMIT}). Use 0 for all.",
+    )
+    handoff_parser.add_argument(
+        "-o",
+        "--output",
+        help="Write handoff output to a file instead of stdout.",
     )
 
     show_parser = subparsers.add_parser("show", help="Show a single build log entry by id.")
@@ -68,6 +79,11 @@ def build_parser():
         type=int,
         default=DEFAULT_HANDOFF_LIMIT,
         help=f"Maximum recent entries to include (default: {DEFAULT_HANDOFF_LIMIT}). Use 0 for all.",
+    )
+    resume_parser.add_argument(
+        "-o",
+        "--output",
+        help="Write resume output to a file instead of stdout.",
     )
 
     decide_parser = subparsers.add_parser("decide", help="Record a builder decision.")
@@ -196,28 +212,51 @@ def format_entry_markdown(entry):
     return "\n".join(lines)
 
 
-def export_entries(entries, fmt):
+def emit_output(content, output_path):
+    if output_path:
+        path = Path(output_path)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if content and not content.endswith("\n"):
+                content = content + "\n"
+            path.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    if not content:
+        return 0
+
+    sys.stdout.write(content if content.endswith("\n") else content + "\n")
+    return 0
+
+
+def format_export(records, fmt):
     if fmt == "jsonl":
-        for entry in entries:
-            print(json.dumps(entry, ensure_ascii=False))
-        return
+        if not records:
+            return ""
+        return "\n".join(json.dumps(entry, ensure_ascii=False) for entry in records) + "\n"
 
-    if not entries:
-        return
+    if not records:
+        return ""
 
-    print("# Build Log")
-    print()
-    for index, entry in enumerate(entries):
-        print(format_entry_markdown(entry))
-        if index < len(entries) - 1:
-            print()
+    lines = ["# Build Log", ""]
+    for index, entry in enumerate(records):
+        lines.append(format_entry_markdown(entry))
+        if index < len(records) - 1:
+            lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def export_entries(records, fmt):
+    sys.stdout.write(format_export(records, fmt))
 
 
 def cmd_export(args):
     loaded = storage.load_entries()
     loaded.sort(key=lambda entry: entry["timestamp"])
-    export_entries(loaded, args.format)
-    return 0
+    return emit_output(format_export(loaded, args.format), args.output)
 
 
 def _top_tags(entries, limit=5):
@@ -568,8 +607,8 @@ def cmd_handoff(args):
         entries.is_decision,
     )
 
-    print(format_handoff(loaded, shipping_selected, decisions_selected))
-    return 0
+    handoff_text = format_handoff(loaded, shipping_selected, decisions_selected)
+    return emit_output(handoff_text, args.output)
 
 
 def cmd_resume(args):
@@ -600,8 +639,8 @@ def cmd_resume(args):
         if anchor
         else {"available": False, "text": "none", "branch": None, "commit_count": 0, "working_tree": None}
     )
-    print(format_resume(anchor, loaded, shipping_selected, git_delta, decisions_selected))
-    return 0
+    resume_text = format_resume(anchor, loaded, shipping_selected, git_delta, decisions_selected)
+    return emit_output(resume_text, args.output)
 
 
 def find_entry_by_id(entries, id_query):

@@ -56,9 +56,12 @@ buildlog list --tag cli
 buildlog list --project myapp --tag v3
 buildlog export
 buildlog export --format jsonl
+buildlog export -o buildlog.md
 buildlog stats
 buildlog handoff
+buildlog handoff -o handoff.md
 buildlog resume
+buildlog resume -o .buildlog/latest-resume.md
 buildlog show --id 5562be1f
 buildlog add ... --capture-git
 ```
@@ -76,7 +79,8 @@ buildlog add ... --capture-git
 - `export` prints human-readable Markdown by default.
 - `export --format markdown` prints the same Markdown output.
 - `export --format jsonl` prints full raw JSONL entries, oldest first.
-- With no stored entries, `export` prints empty stdout.
+- `export -o <path>` writes export output to a file instead of stdout.
+- With no stored entries, `export` prints empty stdout (or writes an empty file with `-o`).
 
 Markdown format:
 
@@ -106,6 +110,7 @@ Markdown export omits internal entry ids. The `Tags:` line is omitted when an en
 - Includes recent shipping, active projects, recurring themes, and a paste-ready resume prompt.
 - `--limit` defaults to `5`; use `--limit 0` for all entries in recent shipping.
 - `--project` filters entries before building the handoff.
+- `-o <path>` writes handoff output to a file instead of stdout.
 - With no stored entries, all sections print `none` except the resume prompt, which suggests running `add`.
 
 Typical workflow:
@@ -122,6 +127,7 @@ buildlog handoff | pbcopy   # log-only handoff without git delta
 - Includes handoff-style sections (recent shipping, active projects, recurring themes) and an enhanced resume prompt.
 - `--limit` defaults to `5`; use `--limit 0` for all entries in recent shipping.
 - `--project` anchors on the latest entry for that project and filters the bundle.
+- `-o <path>` writes resume output to a file instead of stdout.
 - Run from the project repository when you want git context. Outside a git repo, git sections print `none`.
 - Use `add --capture-git` to store branch, commit, and dirty state on an entry for more accurate deltas.
 

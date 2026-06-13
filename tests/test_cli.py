@@ -1393,6 +1393,61 @@ class CliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("# Buildlog Resume", result.stdout)
 
+    def test_export_writes_to_output_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            output_path = os.path.join(tmp, "out", "buildlog.md")
+            self.write_entries(log_path, self.sample_entries())
+
+            exit_code, stdout, _ = self.run_cli(["export", "-o", output_path], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stdout, "")
+            with open(output_path, encoding="utf-8") as handle:
+                content = handle.read()
+            self.assertIn("# Build Log", content)
+            self.assertIn("Old", content)
+
+    def test_handoff_writes_to_output_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            output_path = os.path.join(tmp, "handoff.md")
+            self.write_entries(log_path, self.sample_entries())
+
+            exit_code, stdout, _ = self.run_cli(["handoff", "-o", output_path], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stdout, "")
+            with open(output_path, encoding="utf-8") as handle:
+                content = handle.read()
+            self.assertIn("# Buildlog Handoff", content)
+
+    def test_resume_writes_to_output_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            output_path = os.path.join(tmp, "resume.md")
+            self.write_entries(log_path, self.sample_entries())
+
+            exit_code, stdout, _ = self.run_cli(["resume", "-o", output_path], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stdout, "")
+            with open(output_path, encoding="utf-8") as handle:
+                content = handle.read()
+            self.assertIn("# Buildlog Resume", content)
+
+    def test_export_output_file_empty_storage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "missing.jsonl")
+            output_path = os.path.join(tmp, "empty.md")
+
+            exit_code, stdout, _ = self.run_cli(["export", "-o", output_path], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stdout, "")
+            with open(output_path, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "")
+
 
 if __name__ == "__main__":
     unittest.main()
