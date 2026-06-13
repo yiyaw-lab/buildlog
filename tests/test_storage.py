@@ -109,6 +109,67 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(loaded, [valid])
             stderr.write.assert_called()
 
+    def test_load_mixed_entries_and_decisions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            entry = {
+                "id": "abc123",
+                "timestamp": "2026-06-09T12:00:00+00:00",
+                "project": "demo",
+                "title": "Test",
+                "summary": "Roundtrip",
+                "tags": ["test"],
+            }
+            decision = {
+                "kind": "decision",
+                "id": "def456",
+                "timestamp": "2026-06-09T13:00:00+00:00",
+                "project": "demo",
+                "choice": "Use JSONL",
+                "rationale": "One file",
+                "tags": ["adr"],
+            }
+            with open(log_path, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry) + "\n")
+                handle.write(json.dumps(decision) + "\n")
+
+            with patch.dict(os.environ, {"BUILDLOG_PATH": log_path}):
+                loaded = storage.load_entries()
+
+            self.assertEqual(loaded, [entry, decision])
+
+    def test_malformed_decision_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            valid = {
+                "kind": "decision",
+                "id": "abc123",
+                "timestamp": "2026-06-09T12:00:00+00:00",
+                "project": "demo",
+                "choice": "Valid",
+                "rationale": "Valid rationale",
+                "tags": [],
+            }
+            with open(log_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps(
+                        {
+                            "kind": "decision",
+                            "project": "demo",
+                            "choice": "Missing fields",
+                        }
+                    )
+                    + "\n"
+                )
+                handle.write(json.dumps(valid) + "\n")
+
+            with patch.dict(os.environ, {"BUILDLOG_PATH": log_path}):
+                with patch("sys.stderr") as stderr:
+                    loaded = storage.load_entries()
+
+            self.assertEqual(loaded, [valid])
+            stderr.write.assert_called()
+
 
 if __name__ == "__main__":
     unittest.main()

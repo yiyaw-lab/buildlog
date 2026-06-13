@@ -1,6 +1,6 @@
 import unittest
 
-from buildlog.entries import make_entry, normalize_tags
+from buildlog.entries import is_decision, make_decision, make_entry, normalize_tags
 
 
 class EntryTests(unittest.TestCase):
@@ -34,6 +34,25 @@ class EntryTests(unittest.TestCase):
 
     def test_normalize_tags_deduplicates(self):
         self.assertEqual(normalize_tags(["a", "a", "b"]), ["a", "b"])
+
+    def test_make_decision_has_required_fields(self):
+        decision = make_decision("myapp", "Use JSONL", "Keeps one storage path")
+
+        self.assertTrue(is_decision(decision))
+        self.assertIn("id", decision)
+        self.assertIn("timestamp", decision)
+        self.assertEqual(decision["project"], "myapp")
+        self.assertEqual(decision["choice"], "Use JSONL")
+        self.assertEqual(decision["rationale"], "Keeps one storage path")
+        self.assertEqual(decision["tags"], [])
+
+    def test_make_decision_rejects_empty_required_fields(self):
+        with self.assertRaises(ValueError):
+            make_decision("", "choice", "rationale")
+        with self.assertRaises(ValueError):
+            make_decision("project", "", "rationale")
+        with self.assertRaises(ValueError):
+            make_decision("project", "choice", "")
 
 
 if __name__ == "__main__":

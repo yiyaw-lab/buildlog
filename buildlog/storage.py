@@ -5,6 +5,7 @@ from pathlib import Path
 
 DEFAULT_LOG_PATH = ".buildlog/entries.jsonl"
 REQUIRED_STRING_FIELDS = ("id", "timestamp", "project", "title", "summary")
+DECISION_STRING_FIELDS = ("id", "timestamp", "project", "choice", "rationale")
 
 
 def is_valid_git(git):
@@ -39,6 +40,42 @@ def is_valid_entry(entry):
     return True
 
 
+def is_valid_decision(entry):
+    if not isinstance(entry, dict):
+        return False
+    if entry.get("kind") != "decision":
+        return False
+
+    for field in DECISION_STRING_FIELDS:
+        if field not in entry or not isinstance(entry[field], str):
+            return False
+
+    tags = entry.get("tags")
+    if not isinstance(tags, list):
+        return False
+    if not all(isinstance(tag, str) for tag in tags):
+        return False
+
+    git = entry.get("git")
+    if git is not None and not is_valid_git(git):
+        return False
+
+    return True
+
+
+def is_valid_record(entry):
+    if not isinstance(entry, dict):
+        return False
+
+    kind = entry.get("kind")
+    if kind == "decision":
+        return is_valid_decision(entry)
+    if kind is not None:
+        return False
+
+    return is_valid_entry(entry)
+
+
 def get_log_path():
     return os.environ.get("BUILDLOG_PATH", DEFAULT_LOG_PATH)
 
@@ -70,7 +107,7 @@ def load_entries():
                 )
                 continue
 
-            if not is_valid_entry(parsed):
+            if not is_valid_record(parsed):
                 print(
                     f"warning: skipping malformed entry on line {line_number}",
                     file=sys.stderr,

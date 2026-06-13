@@ -111,6 +111,166 @@ class CliTests(unittest.TestCase):
             self.assertEqual(entry["project"], "demo")
             self.assertEqual(entry["tags"], ["test"])
 
+    def test_decide_command_creates_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            exit_code, stdout, _ = self.run_cli(
+                [
+                    "decide",
+                    "--project",
+                    "demo",
+                    "--choice",
+                    "Use JSONL",
+                    "--rationale",
+                    "Keeps one storage path",
+                    "--tag",
+                    "adr",
+                ],
+                log_path,
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(stdout.startswith("Added "))
+            with open(log_path, encoding="utf-8") as handle:
+                decision = json.loads(handle.readline())
+            self.assertEqual(decision["kind"], "decision")
+            self.assertEqual(decision["choice"], "Use JSONL")
+            self.assertEqual(decision["tags"], ["adr"])
+
+    def test_list_shows_decision_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            decision = {
+                "kind": "decision",
+                "id": "1",
+                "timestamp": "2026-06-09T12:00:00+00:00",
+                "project": "demo",
+                "choice": "Use JSONL",
+                "rationale": "One file",
+                "tags": ["adr"],
+            }
+            self.write_entries(log_path, [decision])
+
+            exit_code, stdout, _ = self.run_cli(["list"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("[decision]", stdout)
+            self.assertIn("Use JSONL", stdout)
+
+    def test_show_displays_decision_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            decision = {
+                "kind": "decision",
+                "id": "44444444444444444444444444444444",
+                "timestamp": "2026-06-09T12:00:00+00:00",
+                "project": "demo",
+                "choice": "Use JSONL",
+                "rationale": "One file",
+                "tags": ["adr"],
+            }
+            self.write_entries(log_path, [decision])
+
+            exit_code, stdout, _ = self.run_cli(
+                ["show", "--id", "44444444444444444444444444444444"],
+                log_path,
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Kind: decision", stdout)
+            self.assertIn("Choice: Use JSONL", stdout)
+            self.assertIn("Rationale: One file", stdout)
+
+    def test_handoff_includes_recent_decisions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            records = [
+                {
+                    "id": "1",
+                    "timestamp": "2026-06-09T10:00:00+00:00",
+                    "project": "alpha",
+                    "title": "Shipped",
+                    "summary": "Built feature",
+                    "tags": [],
+                },
+                {
+                    "kind": "decision",
+                    "id": "2",
+                    "timestamp": "2026-06-09T11:00:00+00:00",
+                    "project": "alpha",
+                    "choice": "Use JSONL",
+                    "rationale": "One storage path",
+                    "tags": ["adr"],
+                },
+            ]
+            self.write_entries(log_path, records)
+
+            exit_code, stdout, _ = self.run_cli(["handoff"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("## Recent decisions", stdout)
+            self.assertIn("Use JSONL", stdout)
+            self.assertIn("do not contradict them", stdout)
+
+    def test_handoff_no_decisions_shows_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "missing.jsonl")
+            exit_code, stdout, _ = self.run_cli(["handoff"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            decisions_section = stdout.split("## Recent decisions")[1].split("## Resume prompt")[0]
+            self.assertIn("none", decisions_section)
+
+    def test_resume_includes_recent_decisions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            records = [
+                {
+                    "id": "1",
+                    "timestamp": "2026-06-09T10:00:00+00:00",
+                    "project": "alpha",
+                    "title": "Shipped",
+                    "summary": "Built feature",
+                    "tags": [],
+                },
+                {
+                    "kind": "decision",
+                    "id": "2",
+                    "timestamp": "2026-06-09T11:00:00+00:00",
+                    "project": "alpha",
+                    "choice": "Use JSONL",
+                    "rationale": "One storage path",
+                    "tags": [],
+                },
+            ]
+            self.write_entries(log_path, records)
+
+            exit_code, stdout, _ = self.run_cli(["resume"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("## Recent decisions", stdout)
+            self.assertIn("Use JSONL", stdout)
+
+    def test_export_markdown_decision_format(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "entries.jsonl")
+            decision = {
+                "kind": "decision",
+                "id": "1",
+                "timestamp": "2026-06-09T10:00:00+00:00",
+                "project": "alpha",
+                "choice": "Use JSONL",
+                "rationale": "One storage path",
+                "tags": ["adr"],
+            }
+            self.write_entries(log_path, [decision])
+
+            exit_code, stdout, _ = self.run_cli(["export"], log_path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("### Decision: Use JSONL", stdout)
+            self.assertIn("One storage path", stdout)
+
     def test_list_empty_storage_prints_empty_stdout(self):
         with tempfile.TemporaryDirectory() as tmp:
             log_path = os.path.join(tmp, "missing.jsonl")

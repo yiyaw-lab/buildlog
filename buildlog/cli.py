@@ -70,6 +70,17 @@ def build_parser():
         help=f"Maximum recent entries to include (default: {DEFAULT_HANDOFF_LIMIT}). Use 0 for all.",
     )
 
+    decide_parser = subparsers.add_parser("decide", help="Record a builder decision.")
+    decide_parser.add_argument("--project", required=True)
+    decide_parser.add_argument("--choice", required=True)
+    decide_parser.add_argument("--rationale", required=True)
+    decide_parser.add_argument("--tag", action="append", default=[], dest="tags")
+    decide_parser.add_argument(
+        "--capture-git",
+        action="store_true",
+        help="Attach current git branch, commit, and dirty state to the decision.",
+    )
+
     return parser
 
 
@@ -97,6 +108,30 @@ def cmd_add(args):
     return 0
 
 
+def cmd_decide(args):
+    try:
+        git_info = None
+        if args.capture_git:
+            git_info, warning = git_context.capture_git_context()
+            if warning:
+                git_context.warn(warning)
+
+        decision = entries.make_decision(
+            args.project,
+            args.choice,
+            args.rationale,
+            args.tags,
+            git=git_info,
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    storage.append_entry(decision)
+    print(f"Added {decision['id']}")
+    return 0
+
+
 def cmd_list(args):
     if args.limit is not None and args.limit < 0:
         print("error: limit must be zero or greater", file=sys.stderr)
@@ -120,24 +155,42 @@ def cmd_list(args):
         tags = entry["tags"]
         tag_text = ", ".join(tags)
         tag_suffix = f"  [{tag_text}]" if tag_text else ""
-        print(
-            f"{entry['timestamp']}  "
-            f"{entry['project']}  "
-            f"{entry['title']}  "
-            f"{entry['summary']}{tag_suffix}"
-        )
+        if entries.is_decision(entry):
+            print(
+                f"{entry['timestamp']}  "
+                f"{entry['project']}  "
+                f"[decision]  "
+                f"{entry['choice']}  "
+                f"{entry['rationale']}{tag_suffix}"
+            )
+        else:
+            print(
+                f"{entry['timestamp']}  "
+                f"{entry['project']}  "
+                f"{entry['title']}  "
+                f"{entry['summary']}{tag_suffix}"
+            )
     return 0
 
 
 def format_entry_markdown(entry):
     date = entry["timestamp"][:10]
-    lines = [
-        f"## {date} — {entry['project']}",
-        "",
-        f"### {entry['title']}",
-        "",
-        entry["summary"],
-    ]
+    if entries.is_decision(entry):
+        lines = [
+            f"## {date} — {entry['project']}",
+            "",
+            f"### Decision: {entry['choice']}",
+            "",
+            entry["rationale"],
+        ]
+    else:
+        lines = [
+            f"## {date} — {entry['project']}",
+            "",
+            f"### {entry['title']}",
+            "",
+            entry["summary"],
+        ]
     if entry["tags"]:
         lines.extend(["", f"Tags: {', '.join(entry['tags'])}"])
     return "\n".join(lines)
@@ -180,20 +233,23 @@ def _top_tags(entries, limit=5):
     return [tag for tag, _ in ranked_tags]
 
 
-def format_stats(entries):
-    top_tags = _top_tags(entries)
+def format_stats(records):
+    top_tags = _top_tags(records)
     top_tags_text = ", ".join(top_tags) if top_tags else "none"
 
-    if entries:
-        latest = max(entries, key=lambda entry: entry["timestamp"])
-        latest_text = f"{latest['timestamp'][:10]} — {latest['project']} — {latest['title']}"
+    if records:
+        latest = max(records, key=lambda entry: entry["timestamp"])
+        if entries.is_decision(latest):
+            latest_text = f"{latest['timestamp'][:10]} — {latest['project']} — {latest['choice']}"
+        else:
+            latest_text = f"{latest['timestamp'][:10]} — {latest['project']} — {latest['title']}"
     else:
         latest_text = "none"
 
     return "\n".join(
         [
-            f"Total entries: {len(entries)}",
-            f"Projects: {len({entry['project'] for entry in entries})}",
+            f"Total entries: {len(records)}",
+            f"Projects: {len({entry['project'] for entry in records})}",
             f"Top tags: {top_tags_text}",
             f"Latest entry: {latest_text}",
         ]
@@ -209,6 +265,24 @@ def _format_handoff_shipping_entry(entry):
     if entry["tags"]:
         lines.append(f"  Tags: {', '.join(entry['tags'])}")
     return "\n".join(lines)
+
+
+def _format_handoff_decision_entry(entry):
+    date = entry["timestamp"][:10]
+    lines = [
+        f"- {date} — {entry['project']} — {entry['choice']}",
+        f"  {entry['rationale']}",
+    ]
+    if entry["tags"]:
+        lines.append(f"  Tags: {', '.join(entry['tags'])}")
+    return "\n".join(lines)
+
+
+def _recent_records(records, limit, predicate):
+    filtered = [record for record in records if predicate(record)]
+    if limit == 0:
+        return filtered
+    return filtered[:limit]
 
 
 def _format_active_projects(entries):
@@ -231,7 +305,7 @@ def _format_active_projects(entries):
     return "\n".join(lines)
 
 
-def _format_resume_prompt(entries, selected):
+def _format_resume_prompt(entries, selected, decisions):
     if not entries:
         return (
             "No build log entries yet. Start by running "
@@ -248,23 +322,33 @@ def _format_resume_prompt(entries, selected):
     project_names = sorted({entry["project"] for entry in entries})
     tag_text = ", ".join(_top_tags(entries)) or "none"
 
-    return "\n".join(
+    lines = [
+        "You are resuming work on this builder project.",
+        "",
+        "Recent context:",
+        *recent_lines,
+        "",
+        f"Active projects: {', '.join(project_names)}",
+        f"Recurring themes: {tag_text}",
+    ]
+    if decisions:
+        lines.extend(
+            [
+                "",
+                "Recent decisions are listed above; do not contradict them without explicit user approval.",
+            ]
+        )
+    lines.extend(
         [
-            "You are resuming work on this builder project.",
-            "",
-            "Recent context:",
-            *recent_lines,
-            "",
-            f"Active projects: {', '.join(project_names)}",
-            f"Recurring themes: {tag_text}",
             "",
             "Pick up from the latest entry unless instructed otherwise. "
             "Ask what changed since the last session before making multi-file edits.",
         ]
     )
+    return "\n".join(lines)
 
 
-def format_handoff(entries, selected):
+def format_handoff(entries, selected, decisions):
     top_tags = _top_tags(entries)
     themes = f"Top tags: {', '.join(top_tags)}" if top_tags else "none"
 
@@ -272,6 +356,11 @@ def format_handoff(entries, selected):
         shipping = "\n".join(_format_handoff_shipping_entry(entry) for entry in selected)
     else:
         shipping = "none"
+
+    if decisions:
+        decision_text = "\n".join(_format_handoff_decision_entry(entry) for entry in decisions)
+    else:
+        decision_text = "none"
 
     return "\n".join(
         [
@@ -286,18 +375,27 @@ def format_handoff(entries, selected):
             "## Recurring themes",
             themes,
             "",
+            "## Recent decisions",
+            decision_text,
+            "",
             "## Resume prompt",
-            _format_resume_prompt(entries, selected),
+            _format_resume_prompt(entries, selected, decisions),
         ]
     )
 
 
 def _format_last_logged_session(anchor):
     date = anchor["timestamp"][:10]
-    lines = [
-        f"{date} — {anchor['project']} — {anchor['title']}",
-        anchor["summary"],
-    ]
+    if entries.is_decision(anchor):
+        lines = [
+            f"{date} — {anchor['project']} — {anchor['choice']}",
+            anchor["rationale"],
+        ]
+    else:
+        lines = [
+            f"{date} — {anchor['project']} — {anchor['title']}",
+            anchor["summary"],
+        ]
     if anchor["tags"]:
         lines.append(f"Tags: {', '.join(anchor['tags'])}")
 
@@ -310,8 +408,8 @@ def _format_last_logged_session(anchor):
     return "\n".join(lines)
 
 
-def _format_resume_prompt_with_git(entries, selected, anchor, git_delta):
-    if not entries:
+def _format_resume_prompt_with_git(records, selected, anchor, git_delta, decisions):
+    if not records:
         return (
             "No build log entries yet. Start by running "
             "`python -m buildlog add ...` to record what you ship."
@@ -324,9 +422,17 @@ def _format_resume_prompt_with_git(entries, selected, anchor, git_delta):
             f"- [{date}] {entry['project']} — {entry['title']}: {entry['summary']}"
         )
 
-    project_names = sorted({entry["project"] for entry in entries})
-    tag_text = ", ".join(_top_tags(entries)) or "none"
+    project_names = sorted({entry["project"] for entry in records})
+    tag_text = ", ".join(_top_tags(records)) or "none"
     anchor_date = anchor["timestamp"][:10]
+    if entries.is_decision(anchor):
+        anchor_line = (
+            f"- [{anchor_date}] {anchor['project']} — {anchor['choice']}: {anchor['rationale']}"
+        )
+    else:
+        anchor_line = (
+            f"- [{anchor_date}] {anchor['project']} — {anchor['title']}: {anchor['summary']}"
+        )
 
     git_lines = []
     if git_delta["available"]:
@@ -337,29 +443,39 @@ def _format_resume_prompt_with_git(entries, selected, anchor, git_delta):
     else:
         git_lines.append("- Git context unavailable")
 
-    return "\n".join(
+    lines = [
+        f"You are resuming work on {anchor['project']}.",
+        "",
+        "Last recorded intent:",
+        anchor_line,
+        "",
+        "Recent context:",
+        *recent_lines,
+        "",
+        "Code changes since then:",
+        *git_lines,
+        "",
+        f"Active projects: {', '.join(project_names)}",
+        f"Recurring themes: {tag_text}",
+    ]
+    if decisions:
+        lines.extend(
+            [
+                "",
+                "Recent decisions are listed above; do not contradict them without explicit user approval.",
+            ]
+        )
+    lines.extend(
         [
-            f"You are resuming work on {anchor['project']}.",
-            "",
-            "Last recorded intent:",
-            f"- [{anchor_date}] {anchor['project']} — {anchor['title']}: {anchor['summary']}",
-            "",
-            "Recent context:",
-            *recent_lines,
-            "",
-            "Code changes since then:",
-            *git_lines,
-            "",
-            f"Active projects: {', '.join(project_names)}",
-            f"Recurring themes: {tag_text}",
             "",
             "Pick up from the latest entry unless instructed otherwise. "
             "Ask what changed since the last session before making multi-file edits.",
         ]
     )
+    return "\n".join(lines)
 
 
-def format_resume(anchor, entries, selected, git_delta):
+def format_resume(anchor, entries, selected, git_delta, decisions):
     if not entries:
         return "\n".join(
             [
@@ -380,14 +496,21 @@ def format_resume(anchor, entries, selected, git_delta):
                 "## Recurring themes",
                 "none",
                 "",
+                "## Recent decisions",
+                "none",
+                "",
                 "## Resume prompt",
-                _format_resume_prompt_with_git(entries, selected, anchor, git_delta),
+                _format_resume_prompt_with_git(entries, selected, anchor, git_delta, decisions),
             ]
         )
 
     top_tags = _top_tags(entries)
     themes = f"Top tags: {', '.join(top_tags)}" if top_tags else "none"
     shipping = "\n".join(_format_handoff_shipping_entry(entry) for entry in selected)
+    if decisions:
+        decision_text = "\n".join(_format_handoff_decision_entry(entry) for entry in decisions)
+    else:
+        decision_text = "none"
 
     return "\n".join(
         [
@@ -400,7 +523,7 @@ def format_resume(anchor, entries, selected, git_delta):
             git_delta["text"],
             "",
             "## Recent shipping",
-            shipping,
+            shipping or "none",
             "",
             "## Active projects",
             _format_active_projects(entries),
@@ -408,8 +531,11 @@ def format_resume(anchor, entries, selected, git_delta):
             "## Recurring themes",
             themes,
             "",
+            "## Recent decisions",
+            decision_text,
+            "",
             "## Resume prompt",
-            _format_resume_prompt_with_git(entries, selected, anchor, git_delta),
+            _format_resume_prompt_with_git(entries, selected, anchor, git_delta, decisions),
         ]
     )
 
@@ -431,12 +557,18 @@ def cmd_handoff(args):
 
     loaded.sort(key=lambda entry: entry["timestamp"], reverse=True)
 
-    if args.limit == 0:
-        selected = loaded
-    else:
-        selected = loaded[: args.limit]
+    shipping_selected = _recent_records(
+        loaded,
+        args.limit,
+        lambda record: not entries.is_decision(record),
+    )
+    decisions_selected = _recent_records(
+        loaded,
+        args.limit,
+        entries.is_decision,
+    )
 
-    print(format_handoff(loaded, selected))
+    print(format_handoff(loaded, shipping_selected, decisions_selected))
     return 0
 
 
@@ -451,10 +583,16 @@ def cmd_resume(args):
 
     loaded.sort(key=lambda entry: entry["timestamp"], reverse=True)
 
-    if args.limit == 0:
-        selected = loaded
-    else:
-        selected = loaded[: args.limit]
+    shipping_selected = _recent_records(
+        loaded,
+        args.limit,
+        lambda record: not entries.is_decision(record),
+    )
+    decisions_selected = _recent_records(
+        loaded,
+        args.limit,
+        entries.is_decision,
+    )
 
     anchor = loaded[0] if loaded else None
     git_delta = (
@@ -462,7 +600,7 @@ def cmd_resume(args):
         if anchor
         else {"available": False, "text": "none", "branch": None, "commit_count": 0, "working_tree": None}
     )
-    print(format_resume(anchor, loaded, selected, git_delta))
+    print(format_resume(anchor, loaded, shipping_selected, git_delta, decisions_selected))
     return 0
 
 
@@ -485,9 +623,22 @@ def format_entry_show(entry):
         f"ID: {entry['id']}",
         f"Timestamp: {entry['timestamp']}",
         f"Project: {entry['project']}",
-        f"Title: {entry['title']}",
-        f"Summary: {entry['summary']}",
     ]
+    if entries.is_decision(entry):
+        lines.extend(
+            [
+                "Kind: decision",
+                f"Choice: {entry['choice']}",
+                f"Rationale: {entry['rationale']}",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"Title: {entry['title']}",
+                f"Summary: {entry['summary']}",
+            ]
+        )
     if entry["tags"]:
         lines.append(f"Tags: {', '.join(entry['tags'])}")
     return "\n".join(lines)
@@ -518,6 +669,8 @@ def main(argv=None):
 
     if args.command == "add":
         return cmd_add(args)
+    if args.command == "decide":
+        return cmd_decide(args)
     if args.command == "list":
         return cmd_list(args)
     if args.command == "export":

@@ -8,7 +8,7 @@ Git shows diffs, not intent. Chat history is messy and ephemeral. Notes apps sto
 
 ## What it does
 
-- **Capture** — record projects, titles, summaries, and tags as JSONL
+- **Capture** — record projects, titles, summaries, tags, and decisions as JSONL
 - **Review** — list, filter, inspect, and summarize your build history
 - **Resume** — generate agent-ready handoff bundles from recent work
 
@@ -43,6 +43,12 @@ buildlog add \
   --title "Setup CLI" \
   --summary "Scaffolded buildlog commands" \
   --tag python --tag cli
+
+buildlog decide \
+  --project myapp \
+  --choice "Use JSONL storage" \
+  --rationale "Keeps one local file and reuses resume/handoff without a database." \
+  --tag adr
 
 buildlog list
 buildlog list --project myapp --limit 5
@@ -181,10 +187,22 @@ echo '{"status": "completed", "loop_count": 1}' | .cursor/hooks/session-capture.
 
 ### Show behavior
 
-- `show --id` prints one entry in a human-readable detail view, including the internal id.
+- `show --id` prints one record in a human-readable detail view, including the internal id.
+- Shipping entries show `Title` and `Summary`. Decisions show `Kind: decision`, `Choice`, and `Rationale`.
 - Accepts a full id or a unique id prefix. Prefixes that match multiple entries exit with code `1`.
-- Entry ids are printed when you run `add` (`Added <id>`).
+- Entry ids are printed when you run `add` or `decide` (`Added <id>`).
 - The `Tags:` line is omitted when an entry has no tags.
+
+### Decide behavior
+
+- `decide` records ADR-lite builder decisions in the same JSONL file with `kind: "decision"`.
+- Required fields: `--project`, `--choice`, `--rationale`.
+- Optional: `--tag` (repeatable), `--capture-git`.
+- `list` marks decisions with `[decision]` before the choice text.
+- `export` renders decisions as `### Decision: <choice>` in Markdown.
+- `handoff` and `resume` include a `## Recent decisions` section (up to `--limit`, default 5).
+- When decisions are present, the resume prompt reminds the agent not to contradict them without approval.
+- Legacy shipping entries without `kind` continue to load unchanged.
 
 Entries are stored as JSONL at `.buildlog/entries.jsonl` by default.
 
