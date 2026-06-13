@@ -1,4 +1,39 @@
+# Local build log data (may contain project-specific intent and notes)
 .buildlog/
+
+# Python artifacts
 __pycache__/
 *.pyc
 *.egg-info/
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+*.cert
+*.p12
+*.pfx
+
+# Sensitive / private docs
+private/
+secrets/
+company_docs/
+legal/
+tax/
+banking/
+client_data/
+customer_data/
+founder_notes/
+board/
+investor_updates/
+
+# Local environments and generated output
+.venv/
+venv/
+dist/
+build/
+coverage/
+*.log
+*.sqlite
+*.db
