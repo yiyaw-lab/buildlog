@@ -2,7 +2,7 @@
 
 A local continuity system for builders who ship with agents.
 
-**Repository:** [github.com/yiyaw-lab/buildlog](https://github.com/yiyaw-lab/buildlog)
+**Repository:** [github.com/yiyaw-lab/buildlog](https://github.com/yiyaw-lab/buildlog) · MIT License
 
 `buildlog` helps you never lose the thread of what you are building. It records what you ship and why you chose it, then turns that history into session-ready context for Cursor, Claude, or any other agent.
 
@@ -323,5 +323,6 @@ python -m unittest
 
 - `buildlog` is a continuity system first: capture intent locally, resume agents quickly.
 - Agent behavior is defined in `AGENTS.md`.
-- Sensitive and generated paths are excluded via `.cursorignore`.
+- Sensitive and generated paths are excluded via `.cursorignore` and `.gitignore`.
 - `.buildlog/` is gitignored; hooks refresh `.buildlog/latest-resume.md` locally.
+- Licensed under MIT — see `LICENSE`.

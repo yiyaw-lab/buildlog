@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "A local continuity CLI for builders who ship with agents."
 readme = "README.md"
 requires-python = ">=3.9"
+license = { text = "MIT" }
 
 [project.urls]
 Homepage = "https://github.com/yiyaw-lab/buildlog"
