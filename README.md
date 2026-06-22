@@ -1,5 +1,9 @@
 # buildlog
 
+[![CI](https://github.com/yiyaw-lab/buildlog/actions/workflows/ci.yml/badge.svg)](https://github.com/yiyaw-lab/buildlog/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/yiyaw-lab/buildlog)](https://github.com/yiyaw-lab/buildlog/releases)
+
 A local continuity system for builders who ship with agents.
 
 **Repository:** [github.com/yiyaw-lab/buildlog](https://github.com/yiyaw-lab/buildlog) · MIT License
@@ -15,6 +19,50 @@ Git shows diffs, not intent. Chat history is messy and ephemeral. Notes apps sto
 - **Resume** — `handoff` and `resume` generate agent-ready continuity bundles
 
 The goal is not another journal. The goal is continuity between you, your repos, and your agents.
+
+## How it works
+
+`buildlog` has two halves around one local JSONL file. The **capture** half (`add`, `decide`) writes validated records — optionally snapshotting the current git branch, commit, and dirty state. The **resume** half (`handoff`, `resume`) reads those records back and, for `resume`, computes the git delta since the last logged entry, then renders an agent-ready Markdown bundle. The CLI is the only entry point; each command flows through small, single-purpose modules.
+
+```mermaid
+flowchart TD
+    cli["cli.py<br/>argparse dispatch"]
+
+    subgraph capture["Capture (write side)"]
+        add["add / decide"]
+        entries["entries.py<br/>make_entry / make_decision<br/>validate + normalize tags"]
+        snapshot["git_context.py<br/>capture_git_context<br/>(branch, commit, dirty)"]
+    end
+
+    subgraph review["Review"]
+        readcmds["list / show / stats / export"]
+    end
+
+    subgraph resume["Resume (read side)"]
+        resumecmds["handoff / resume"]
+        delta["git_context.py<br/>format_git_delta_since<br/>(commits since anchor)"]
+        bundle["Markdown bundle<br/>recent shipping, decisions,<br/>git delta, resume prompt"]
+    end
+
+    store[("storage.py<br/>.buildlog/entries.jsonl<br/>append_entry / load_entries")]
+
+    cli --> add
+    cli --> readcmds
+    cli --> resumecmds
+
+    add --> entries
+    add -. "--capture-git" .-> snapshot
+    snapshot --> entries
+    entries -->|append_entry| store
+
+    store -->|load_entries| readcmds
+    store -->|load_entries| resumecmds
+    resumecmds --> delta
+    delta --> bundle
+    bundle --> agent(["Cursor / Claude / any agent"])
+```
+
+Cursor hooks close the loop automatically: a `sessionStart` hook writes `buildlog resume` to `.buildlog/latest-resume.md`, and a `stop` hook nudges you to log what shipped (see [Cursor hooks](#cursor-hooks)).
 
 ## Continuity loop
 
